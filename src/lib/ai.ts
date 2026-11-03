@@ -130,33 +130,60 @@ export async function transcribeAudio(audioBlob: Blob): Promise<string> {
     reader.readAsDataURL(audioBlob);
   });
 
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${openRouterKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': window.location.origin,
-      'X-Title': 'Hospitalis',
-    },
-    body: JSON.stringify({
-      model: 'openai/gpt-4o-mini-audio-preview',
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: 'Transcris cet audio médical en français. Réponds UNIQUEMENT avec le texte transcrit, sans commentaire ni formatage.' },
-          { type: 'input_audio', input_audio: { data: base64Audio, format: 'webm' } },
-        ],
-      }],
-    }),
-  });
+  // Modèles audio supportés sur OpenRouter (essai dans l'ordre)
+  const AUDIO_MODELS = [
+    'openai/gpt-audio-mini',                           // OpenAI spécialisé audio
+    'google/gemini-3.5-flash-lite',                    // Gemini multilingue (français)
+    'thinkingmachines/inkling-small:free',             // Gratuit
+    'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', // Gratuit
+  ];
 
-  if (!res.ok) {
-    const detail = (await res.text()).slice(0, 200);
-    throw new Error(`Transcription audio HTTP ${res.status} : ${detail}`);
+  let lastError = '';
+  for (const model of AUDIO_MODELS) {
+    try {
+      console.log('[IA Audio] Tentative avec:', model);
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openRouterKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': window.location.origin,
+          'X-Title': 'Hospitalis',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Transcris cet audio médical en français. Réponds UNIQUEMENT avec le texte transcrit, sans commentaire ni formatage.' },
+              { type: 'input_audio', input_audio: { data: base64Audio, format: 'webm' } },
+            ],
+          }],
+        }),
+      });
+
+      if (!res.ok) {
+        const detail = (await res.text()).slice(0, 150);
+        lastError = `${model} → HTTP ${res.status} : ${detail}`;
+        console.warn('[IA Audio] Échec:', lastError);
+        continue; // Essayer le modèle suivant
+      }
+
+      const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+      const content = data.choices?.[0]?.message?.content;
+      if (!content || content.trim().length === 0) {
+        lastError = `${model} → réponse vide`;
+        continue;
+      }
+
+      console.log('[IA Audio] ✓ Transcription réussie avec:', model);
+      return content;
+    } catch (modelErr) {
+      lastError = `${model} → ${modelErr instanceof Error ? modelErr.message : String(modelErr)}`;
+      console.warn('[IA Audio] Erreur:', lastError);
+      continue;
+    }
   }
 
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error('Transcription audio vide.');
-  return content;
+  throw new Error(`Tous les modèles audio ont échoué. Dernière erreur : ${lastError}`);
 }
