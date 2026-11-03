@@ -1,0 +1,16 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+.vercel
+.env*
+
+# Déploiement & outils locaux
+.vercel/
+hospitalis-deploy.zip
+hospitalis-neo-build.zip
