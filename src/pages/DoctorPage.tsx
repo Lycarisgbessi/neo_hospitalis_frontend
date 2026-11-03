@@ -11,6 +11,7 @@ import { PrescriptionBuilder } from '../components/PrescriptionBuilder';
 import { MedicalDictation, DictatedOrders, formatMedication } from '../components/MedicalDictation';
 import { RecordsTimeline, RecordsSectionTitle } from '../components/RecordsTimeline';
 import { ConsultationSpecialtyDetails } from '../components/ConsultationSpecialtyDetails';
+import { PatientRecordPDF } from '../components/PatientRecordPDF';
 import { Stethoscope, ClipboardList, Send, FileText, Activity, Clock, User, HeartPulse, Pill, TestTube, Crosshair, Syringe, AlertCircle, History, Search, Mic, X } from 'lucide-react';
 
 /** Schéma de structuration de la dictée médicale (médecine générale). */
@@ -127,8 +128,9 @@ export default function DoctorPage() {
   // Hospitalisation après clôture (prioritaire sur le transfert)
   const [hospitalize, setHospitalize] = useState(false);
 
-  // Dictée médicale
+  // Dictée médicical
   const [showDictation, setShowDictation] = useState(false);
+  const [showPDFExport, setShowPDFExport] = useState(false);
   const [dictatedSections, setDictatedSections] = useState<string[]>([]);
 
   /** Crée les Order réels à partir des actes dictés (tarifs = catalogue, jamais inventés). */
@@ -909,6 +911,24 @@ export default function DoctorPage() {
         patientAge={selectedPatient?.age?.toString() || ''}
         patientGender={selectedPatient?.gender || ''}
       />
+
+      {/* Export PDF du dossier patient complet */}
+      {showPDFExport && selectedPatient && (
+        <div className="fixed inset-0 z-[110] bg-stone-950/70 backdrop-blur-md overflow-y-auto p-4 md:p-8">
+          <div className="flex items-center justify-between max-w-[210mm] mx-auto mb-4 no-print">
+            <h2 className="text-lg font-bold text-white">Dossier Patient — {selectedPatient.name}</h2>
+            <div className="flex gap-2">
+              <Button onClick={() => window.print()} className="btn-sheen bg-gradient-to-r from-indigo-600 to-violet-600 rounded-xl">
+                <FileText className="w-4 h-4 mr-2" /> Imprimer / PDF
+              </Button>
+              <Button variant="outline" onClick={() => setShowPDFExport(false)} className="rounded-xl bg-white/10 text-white border-white/20">
+                Fermer
+              </Button>
+            </div>
+          </div>
+          <PatientRecordPDF patient={selectedPatient} />
+        </div>
+      )}
 
       {/* Dictée médicale : transcription vocale → structuration IA → validation */}
       <MedicalDictation
