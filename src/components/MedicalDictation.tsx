@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Mic, Square, Loader2, X, Trash2, AlertCircle, ShieldCheck, ArrowLeft, Wand2, CheckCircle2, Clock, Play, Pause, FileAudio, Pill, TestTube, Crosshair, Syringe } from 'lucide-react';
+import { Mic, Square, Loader2, X, Trash2, AlertCircle, ShieldCheck, ArrowLeft, Wand2, CheckCircle2, Clock, Play, Pause, FileAudio, Pill, TestTube, Crosshair, Syringe, ClipboardList } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { isAiConfigured, generateText, extractJsonObject, getProviderLabel, transcribeAudio } from '../lib/ai';
@@ -172,7 +172,8 @@ export function MedicalDictation({ open, onClose, pageName, schema, enableOrders
       console.log('[Dictée] ✓ Micro autorisé — démarrage de l\'enregistrement');
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
-      const recorder = new MediaRecorder(stream, { mimeType });
+      // Bitrate optimisé pour la parole : 16kbps = fichier léger = upload rapide
+      const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 16000 });
       chunksRef.current = [];
 
       recorder.ondataavailable = (e) => {
@@ -341,11 +342,18 @@ Omette les clés sans contenu.`;
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] bg-stone-950/60 backdrop-blur-md p-2 md:p-6 flex items-center justify-center animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-3xl max-h-[92vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+  // Grouper les champs du schéma par catégorie pour le guide
+  const fieldGuide = Object.entries(schema).map(([key, desc]) => ({
+    key,
+    desc,
+    filled: Boolean(transcript && analysis?.[key]),
+  }));
 
-        <div className="p-5 border-b border-stone-100 bg-gradient-to-r from-indigo-50/50 to-white flex items-center justify-between shrink-0">
+  return (
+    <div className="fixed inset-0 z-[100] bg-stone-950/60 backdrop-blur-md p-2 md:p-4 flex items-center justify-center animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-6xl max-h-[94vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+
+        <div className="p-4 border-b border-stone-100 bg-gradient-to-r from-indigo-50/50 to-white flex items-center justify-between shrink-0">
           <div className="flex items-center">
             <div className="p-2.5 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 mr-3 shadow-glow">
               <Mic className="w-5 h-5 text-white" />
@@ -360,8 +368,59 @@ Omette les clés sans contenu.`;
           </Button>
         </div>
 
-        {/* ═══ CONTENU ═══ */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        {/* ═══ CONTENU : 2 colonnes (guide des champs + enregistrement) ═══ */}
+        <div className="flex-1 flex overflow-hidden">
+
+          {/* ── COLONNE GAUCHE : Guide des champs à mentionner ── */}
+          {phase !== 'preview' && (
+            <aside className="hidden lg:flex w-80 xl:w-96 border-r border-stone-100 bg-stone-50/50 flex-col shrink-0">
+              <div className="p-4 border-b border-stone-100">
+                <h3 className="text-section flex items-center gap-2">
+                  <ClipboardList className="w-4 h-4 text-indigo-600" />
+                  À mentionner dans votre dictée
+                </h3>
+                <p className="text-xs text-stone-400 mt-1.5 leading-relaxed">
+                  Guide des {fieldGuide.length} champs — dictez ceux qui s'appliquent, l'IA les remplira.
+                </p>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 space-y-1">
+                {fieldGuide.map(({ key, desc }) => (
+                  <div
+                    key={key}
+                    className={`flex items-start gap-2.5 px-3 py-2 rounded-xl text-[13px] leading-snug transition-colors ${
+                      key.startsWith('atcd') ? 'bg-amber-50/60' :
+                      key.includes('temperature') || key.includes('tension') || key.includes('pouls') || key.includes('poids') || key.includes('taille') || key.includes('spo2') ? 'bg-rose-50/50' :
+                      key.includes('diagnos') ? 'bg-emerald-50/50' :
+                      key.includes('orientation') || key.includes('hospitalisation') ? 'bg-purple-50/50' :
+                      'bg-white/60'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${
+                      key.startsWith('atcd') ? 'bg-amber-400' :
+                      key.includes('temperature') || key.includes('tension') || key.includes('pouls') || key.includes('poids') || key.includes('taille') || key.includes('spo2') ? 'bg-rose-400' :
+                      key.includes('diagnos') ? 'bg-emerald-400' :
+                      key.includes('orientation') || key.includes('hospitalisation') ? 'bg-purple-400' :
+                      'bg-stone-300'
+                    }`} />
+                    <span className="text-stone-600 font-medium">{desc}</span>
+                  </div>
+                ))}
+                {enableOrders && (
+                  <div className="pt-2 mt-2 border-t border-stone-200/60 space-y-1">
+                    <p className="text-micro px-3 pt-1">Actes & prescriptions (si nécessaire)</p>
+                    {['💊 Médicaments (dose, fréquence, durée)', '🧪 Analyses (NFS, goutte épaisse...)', '🩻 Imagerie (écho, radio...)', '💉 Soins infirmiers'].map(label => (
+                      <div key={label} className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-blue-50/40 text-[13px] text-stone-600 font-medium">
+                        <span>{label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </aside>
+          )}
+
+          {/* ── COLONNE DROITE : Enregistrement + transcription ── */}
+          <div className={`flex-1 overflow-y-auto p-6 space-y-6 ${phase === 'preview' ? 'w-full' : ''}`}>
 
           {/* ── PHASE : ÉDITION (enregistrement + transcription + texte) ── */}
           {(phase === 'idle' || phase === 'recording' || phase === 'recorded' || phase === 'transcribing') && (
@@ -559,6 +618,8 @@ Omette les clés sans contenu.`;
             </div>
           )}
         </div>
+
+        </div>{/* fin colonne droite / flex container */}
 
         {/* ── PIED ── */}
         <div className="p-4 border-t border-stone-100 bg-stone-50/50 flex flex-col-reverse sm:flex-row justify-between gap-3 shrink-0">
