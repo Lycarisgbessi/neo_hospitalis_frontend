@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Loader2, X, Trash2, AlertCircle, ShieldCheck, ArrowLeft, Wand2, CheckCircle2, Clock, Pill, TestTube, Crosshair, Syringe } from 'lucide-react';
+import { Mic, Square, Loader2, X, Trash2, AlertCircle, ShieldCheck, ArrowLeft, Wand2, CheckCircle2, Clock, Play, Pause, FileAudio, Pill, TestTube, Crosshair, Syringe } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
-import { isAiConfigured, generateText, extractJsonObject, getProviderLabel } from '../lib/ai';
+import { isAiConfigured, generateText, extractJsonObject, getProviderLabel, transcribeAudio } from '../lib/ai';
 import { PRICING_CATALOG } from '../context/AppContext';
 
 /** Médicament dicté (ordonnance). */
@@ -35,13 +35,9 @@ const EMPTY_ORDERS: DictatedOrders = { medications: [], labTests: [], imagingExa
 interface MedicalDictationProps {
   open: boolean;
   onClose: () => void;
-  /** Nom de la page (affiché + transmis à l'IA comme contexte). */
   pageName: string;
-  /** clé technique -> description française du champ (utilisée pour le prompt IA et l'aperçu). */
   schema: Record<string, string>;
-  /** Actif : la dictée peut aussi créer ordonnances, bons labo/imagerie et soins infirmiers. */
   enableOrders?: boolean;
-  /** Appelé avec les champs ET les actes validés par le médecin dans l'aperçu. */
   onApply: (fields: Record<string, string>, orders: DictatedOrders) => void;
 }
 
@@ -80,14 +76,12 @@ function parseOrders(parsed: Record<string, unknown>): DictatedOrders {
       }
     }
   }
-
   if (Array.isArray(parsed.laboratoire)) {
     for (const t of parsed.laboratoire) {
       const s = asString(t);
       if (s) orders.labTests.push(s);
     }
   }
-
   if (Array.isArray(parsed.imagerie)) {
     for (const im of parsed.imagerie) {
       if (im && typeof im === 'object') {
@@ -105,205 +99,143 @@ function parseOrders(parsed: Record<string, unknown>): DictatedOrders {
       }
     }
   }
-
   if (Array.isArray(parsed.soins_infirmiers)) {
     for (const s of parsed.soins_infirmiers) {
       const v = asString(s);
       if (v) orders.nursingCare.push(v);
     }
   }
-
   return orders;
 }
 
+type Phase = 'idle' | 'recording' | 'recorded' | 'transcribing' | 'analyzing' | 'preview';
+
 /**
- * Dictée médicale intelligente (contrôle vocal total) :
- * 1. Le médecin parle librement (dictée continue avec relance auto après silence),
- *    ou saisit/colle le texte manuellement (filet de sécurité).
- * 2. L'IA structure la dictée : champs du formulaire ET actes (ordonnance, labo,
- *    imagerie, soins infirmiers) — sans rien inventer.
- * 3. Aperçu : le médecin décoche tout élément erroné AVANT application.
+ * Dictée médicale — ENREGISTREMENT AUDIO PUIS TRANSCRIPTION IA :
+ * 1. Le médecin enregistre sa voix (MediaRecorder, 100% local, aucun serveur)
+ * 2. Il peut écouter son enregistrement (lecteur audio intégré)
+ * 3. Il clique « Transcrire » → l'IA convertit l'audio en texte
+ * 4. Il clique « Analyser » → l'IA structure en champs + actes
+ * 5. Aperçu validable avant application
  */
 export function MedicalDictation({ open, onClose, pageName, schema, enableOrders = false, onApply }: MedicalDictationProps) {
-  const [isRecording, setIsRecording] = useState(false);
-  const [hasResults, setHasResults] = useState(false);
-  const [interim, setInterim] = useState('');
+  const [phase, setPhase] = useState<Phase>('idle');
   const [transcript, setTranscript] = useState('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [analysis, setAnalysis] = useState<Record<string, string> | null>(null);
   const [ordersAnalysis, setOrdersAnalysis] = useState<DictatedOrders>(EMPTY_ORDERS);
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
   const [error, setError] = useState('');
   const [elapsed, setElapsed] = useState(0);
 
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const recordingRef = useRef(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Chronomètre de dictée
+  // Chronomètre pendant l'enregistrement
   useEffect(() => {
-    if (!isRecording) return;
+    if (phase !== 'recording') return;
     const t = window.setInterval(() => setElapsed(s => s + 1), 1000);
     return () => window.clearInterval(t);
-  }, [isRecording]);
+  }, [phase]);
 
-  const stopRecording = useCallback(() => {
-    recordingRef.current = false;
-    try { recognitionRef.current?.stop(); } catch { /* instance déjà arrêtée */ }
-    recognitionRef.current = null;
-    setIsRecording(false);
-    setInterim('');
-  }, []);
-
-  // Nettoyage à la fermeture / démontage
+  // Nettoyage à la fermeture
   useEffect(() => {
     if (!open) {
-      stopRecording();
+      stopEverything();
       setError('');
     }
-  }, [open, stopRecording]);
-  useEffect(() => () => stopRecording(), [stopRecording]);
+  }, [open]);
 
-  // ── Diagnostic au démarrage : navigateur + IA ──
-  const [browserSupported, setBrowserSupported] = useState(true);
-  const [aiStatus, setAiStatus] = useState<'checking' | 'ready' | 'error'>('checking');
-
-  useEffect(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    setBrowserSupported(Boolean(SR));
-    if (!SR) {
-      setError("Reconnaissance vocale non supportée — utilisez Chrome ou Edge. Vous pouvez taper votre dictée manuellement ci-dessous (même résultat).");
+  const stopEverything = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
     }
-    if (isAiConfigured) {
-      generateText("Réponds juste: OK")
-        .then(() => setAiStatus('ready'))
-        .catch(() => {
-          setAiStatus('error');
-          setError(prev => prev || "L'IA ne répond pas (crédits ou connexion). Saisie manuelle disponible ci-dessous.");
-        });
-    } else {
-      setAiStatus('error');
-      setError("IA non configurée (VITE_OPENROUTER_API_KEY). Saisie manuelle disponible ci-dessous.");
-    }
-  }, []);
+    mediaRecorderRef.current = null;
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    setPhase('idle');
+    setAudioUrl(null);
+    setAudioBlob(null);
+    setTranscript('');
+    setAnalysis(null);
+    setOrdersAnalysis(EMPTY_ORDERS);
+    setDeselected(new Set());
+    setElapsed(0);
+  }, [audioUrl]);
 
+  // ── ÉTAPE 1 : ENREGISTRER L'AUDIO (100% local, MediaRecorder) ──
   const startRecording = useCallback(async () => {
     setError('');
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      setError("🎙️ Reconnaissance vocale non supportée par ce navigateur. Utilisez CHROME ou EDGE. Vous pouvez aussi taper votre dictée ci-dessous (même résultat).");
-      return;
-    }
-
-    // ── ÉTAPE 1 : Forcer la demande de permission micro ──
-    // getUserMedia déclenche la popup "Autoriser le microphone" si elle
-    // n'a jamais été affichée. Sans ça, SpeechRecognition échoue en silence.
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // On relève immédiatement le stream (on ne veut pas enregistrer, juste la permission)
-      stream.getTracks().forEach(t => t.stop());
-      console.log('[Dictée] ✓ Permission microphone accordée');
-    } catch (permErr: unknown) {
-      const errName = permErr instanceof Error ? permErr.name : '';
-      console.error('[Dictée] ✗ Permission refusée:', errName);
-      if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
-        setError("🔒 MICRO REFUSÉ — Cliquez sur l'icône cadenas 🔒 à gauche de l'URL → Microphone → Autoriser, puis rechargez la page et réessayez.");
-      } else if (errName === 'NotFoundError') {
-        setError("🎤 Aucun microphone détecté sur cet appareil. Branchez un micro ou utilisez la saisie manuelle ci-dessous.");
+      console.log('[Dictée] ✓ Micro autorisé — démarrage de l\'enregistrement');
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+      const recorder = new MediaRecorder(stream, { mimeType });
+      chunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        setAudioBlob(blob);
+        setAudioUrl(url);
+        setPhase('recorded');
+        console.log('[Dictée] ✓ Enregistrement terminé:', (blob.size / 1024).toFixed(0), 'KB');
+      };
+
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setElapsed(0);
+      setPhase('recording');
+      console.log('[Dictée] 🎙️ Enregistrement en cours...');
+    } catch (err) {
+      console.error('[Dictée] Erreur micro:', err);
+      const name = err instanceof Error ? err.name : '';
+      if (name === 'NotAllowedError') {
+        setError("🔒 Micro refusé — cliquez sur le cadenas 🔒 dans la barre d'adresse → Microphone → Autoriser, puis rechargez.");
+      } else if (name === 'NotFoundError') {
+        setError("🎤 Aucun micro détecté. Vous pouvez taper votre dictée ci-dessous.");
       } else {
-        setError("⚠️ Impossible d'accéder au microphone (" + errName + "). Utilisez la saisie manuelle ci-dessous.");
+        setError("⚠️ Impossible d'accéder au micro. Vous pouvez taper votre dictée ci-dessous.");
       }
-      return;
-    }
-
-    // ── ÉTAPE 2 : Démarrer la reconnaissance vocale ──
-    setElapsed(0);
-    recordingRef.current = true;
-
-    try {
-      const recognition = new SR();
-      recognition.lang = 'fr-FR';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-
-      recognition.onstart = () => {
-        console.log('[Dictée] ✓ Reconnaissance démarrée — parlez maintenant');
-        setIsRecording(true);
-        setHasResults(false);
-        // Timeout : si aucun résultat après 8 secondes, avertir
-        window.setTimeout(() => {
-          if (!hasResults && recordingRef.current) {
-            console.warn('[Dictée] ⚠️ 8s sans résultat — problème de connexion aux serveurs Google ?');
-            setError(prev => prev || "⚠️ Aucune voix détectée après 8 secondes. Causes possibles : connexion lente vers les serveurs Google (la reconnaissance vocale envoie l'audio vers Google), micro mal sélectionné, ou parlez plus fort. Vous pouvez taper votre dictée manuellement ci-dessous.");
-          }
-        }, 8000);
-      };
-
-      recognition.onresult = (event: SpeechRecognitionEventLike) => {
-        let finalText = '';
-        let interimText = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const res = event.results[i];
-          const txt = res[0].transcript;
-          if (res.isFinal) finalText += txt;
-          else interimText += txt;
-        }
-        if (finalText.trim()) {
-          console.log('[Dictée] FINAL:', finalText.trim().slice(0, 80));
-          setTranscript(prev => (prev.trim() ? prev.trim() + ' ' : '') + finalText.trim());
-        }
-        if (interimText.trim()) setHasResults(true);
-        setInterim(interimText);
-      };
-
-      recognition.onerror = (e: SpeechRecognitionErrorEventLike) => {
-        console.error('[Dictée] Erreur:', e.error);
-        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-          setError("🔒 Micro refusé — cliquez sur le cadenas 🔒 dans la barre d'adresse → Microphone → Autoriser → rechargez la page.");
-          recordingRef.current = false;
-          setIsRecording(false);
-        } else if (e.error === 'no-speech') {
-          // Pas grave : le silence déclenche un redémarrage automatique
-          console.log('[Dictée] Silence détecté, redémarrage...');
-        } else if (e.error === 'network') {
-          setError("📡 Erreur réseau — la reconnaissance vocale nécessite une connexion internet (serveurs Google).");
-          recordingRef.current = false;
-          setIsRecording(false);
-        } else if (e.error === 'audio-capture') {
-          setError("🎤 Micro introuvable — vérifiez qu'il est branché et sélectionné comme entrée par défaut.");
-          recordingRef.current = false;
-          setIsRecording(false);
-        }
-      };
-
-      recognition.onend = () => {
-        if (recordingRef.current) {
-          try { recognition.start(); console.log('[Dictée] Redémarrage auto'); } catch { /* déjà démarré */ }
-          return;
-        }
-        setIsRecording(false);
-        setInterim('');
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-      console.log('[Dictée] recognition.start() appelé');
-    } catch (startErr) {
-      console.error('[Dictée] Erreur au démarrage:', startErr);
-      setError("⚠️ Impossible de démarrer la reconnaissance. Utilisez la saisie manuelle ci-dessous.");
-      recordingRef.current = false;
     }
   }, []);
 
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+  }, []);
+
+  // ── ÉTAPE 3 : TRANSCRIRE L'AUDIO AVEC L'IA ──
+  const doTranscribe = useCallback(async () => {
+    if (!audioBlob) return;
+    setPhase('transcribing');
+    setError('');
+    try {
+      console.log('[Dictée] 📤 Envoi de l\'audio à l\'IA...');
+      const text = await transcribeAudio(audioBlob);
+      console.log('[Dictée] ✓ Transcription:', text.slice(0, 100));
+      setTranscript(text);
+      setPhase('idle'); // retour au mode édition avec texte pré-rempli
+    } catch (err) {
+      console.error('[Dictée] Erreur transcription:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`⚠️ Transcription IA échouée (${msg.slice(0, 120)}). Vous pouvez écouter l'audio et taper le texte manuellement ci-dessous.`);
+      setPhase('recorded'); // garder l'audio pour réessayer ou taper manuellement
+    }
+  }, [audioBlob]);
+
+  // ── ÉTAPE 4 : ANALYSER LE TEXTE ──
   const analyze = async () => {
     if (!transcript.trim()) return;
-    // Audit F4 : l'instantané analysé ne doit plus évoluer — on coupe le micro.
-    stopRecording();
-    if (!isAiConfigured) {
-      setError(`Aucun fournisseur IA configuré. Renseignez VITE_OPENROUTER_API_KEY dans le fichier .env. (Actif : ${getProviderLabel()})`);
-      return;
-    }
-    setIsAnalyzing(true);
+    setPhase('analyzing');
     setError('');
     try {
       const ordresSection = enableOrders ? `
@@ -339,11 +271,10 @@ Réponds UNIQUEMENT par un JSON valide, sans markdown : {"champs": {"clé": "val
 Omette les clés sans contenu.`;
 
       const raw = await generateText(prompt);
-      console.log('[Dictée] Réponse IA:', raw);
+      console.log('[Dictée] Réponse IA:', raw.slice(0, 200));
       const parsed = extractJsonObject(raw);
       if (!parsed) throw new Error('Format de réponse inattendu (pas de JSON)');
 
-      // Champs de consultation
       const clean: Record<string, string> = {};
       const champs = parsed.champs;
       if (champs && typeof champs === 'object') {
@@ -351,26 +282,22 @@ Omette les clés sans contenu.`;
           if (typeof v === 'string' && v.trim() && k in schema) clean[k] = v.trim();
         });
       }
-
-      // Actes et prescriptions
       const orders = enableOrders ? parseOrders(parsed) : EMPTY_ORDERS;
       const nbChamps = Object.keys(clean).length;
       const nbActes = orders.medications.length + orders.labTests.length + orders.imagingExams.length + orders.nursingCare.length;
-
       if (nbChamps === 0 && nbActes === 0) {
-        setError("Aucun élément exploitable n'a été identifié dans la dictée. Complétez le texte et réessayez.");
+        setError("Aucun élément exploitable identifié. Complétez le texte et réessayez.");
+        setPhase('idle');
         return;
       }
-
       setAnalysis(clean);
       setOrdersAnalysis(orders);
       setDeselected(new Set());
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error('[Dictée] Erreur analyse IA:', message);
-      setError(`Erreur lors de l'analyse par l'IA : ${message.slice(0, 180)} — la dictée est conservée, réessayez.`);
-    } finally {
-      setIsAnalyzing(false);
+      setPhase('preview');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Erreur d'analyse IA : ${msg.slice(0, 150)} — le texte est conservé, réessayez.`);
+      setPhase('idle');
     }
   };
 
@@ -384,14 +311,12 @@ Omette les clés sans contenu.`;
 
   const countOrders = (o: DictatedOrders) => o.medications.length + o.labTests.length + o.imagingExams.length + o.nursingCare.length;
   const selectedFields = analysis ? Object.keys(analysis).filter(k => !deselected.has(`field:${k}`)).length : 0;
-  const selectedOrders = ordersAnalysis
-    ? countOrders({
-        medications: ordersAnalysis.medications.filter((_, i) => !deselected.has(`pharm:${i}`)),
-        labTests: ordersAnalysis.labTests.filter((_, i) => !deselected.has(`lab:${i}`)),
-        imagingExams: ordersAnalysis.imagingExams.filter((_, i) => !deselected.has(`ima:${i}`)),
-        nursingCare: ordersAnalysis.nursingCare.filter((_, i) => !deselected.has(`nurse:${i}`)),
-      })
-    : 0;
+  const selectedOrders = ordersAnalysis ? countOrders({
+    medications: ordersAnalysis.medications.filter((_, i) => !deselected.has(`pharm:${i}`)),
+    labTests: ordersAnalysis.labTests.filter((_, i) => !deselected.has(`lab:${i}`)),
+    imagingExams: ordersAnalysis.imagingExams.filter((_, i) => !deselected.has(`ima:${i}`)),
+    nursingCare: ordersAnalysis.nursingCare.filter((_, i) => !deselected.has(`nurse:${i}`)),
+  }) : 0;
 
   const apply = () => {
     if (!analysis) return;
@@ -406,264 +331,263 @@ Omette les clés sans contenu.`;
       nursingCare: ordersAnalysis.nursingCare.filter((_, i) => !deselected.has(`nurse:${i}`)),
     };
     onApply(fields, orders);
-    // Réinitialisation pour une prochaine dictée
-    setAnalysis(null);
-    setOrdersAnalysis(EMPTY_ORDERS);
-    setTranscript('');
-    setDeselected(new Set());
+    stopEverything();
     onClose();
   };
 
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   const formatGnf = (n: number) => new Intl.NumberFormat('fr-GN', { maximumFractionDigits: 0 }).format(n) + ' FG';
-
-  const itemClass = (key: string) =>
-    `flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${deselected.has(key) ? 'border-slate-200 bg-slate-50 opacity-60' : 'border-blue-200 bg-blue-50/50'}`;
+  const itemClass = (key: string) => `flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${deselected.has(key) ? 'border-stone-200 bg-stone-50 opacity-60' : 'border-indigo-200 bg-indigo-50/50'}`;
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm p-2 md:p-6 flex items-center justify-center animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-3xl max-h-[92vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-[100] bg-stone-950/60 backdrop-blur-md p-2 md:p-6 flex items-center justify-center animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-3xl max-h-[92vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden">
 
-        {/* En-tête */}
-        <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
+        <div className="p-5 border-b border-stone-100 bg-gradient-to-r from-indigo-50/50 to-white flex items-center justify-between shrink-0">
           <div className="flex items-center">
-            <div className="p-2 rounded-lg bg-blue-50 mr-3">
-              <Mic className="w-6 h-6 text-blue-600" />
+            <div className="p-2.5 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 mr-3 shadow-glow">
+              <Mic className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-900">Dictée Médicale {enableOrders && <span className="text-xs font-semibold text-blue-600 uppercase tracking-wider">— contrôle total</span>}</h2>
-              <p className="text-sm text-slate-500">{pageName} — parlez, l'IA remplit le formulaire {enableOrders && 'et crée les prescriptions'} pour vous</p>
+              <h2 className="text-lg font-bold tracking-tight text-stone-900">Dictée Médicale {enableOrders && <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">— contrôle total</span>}</h2>
+              <p className="text-xs text-stone-500">{pageName} — enregistrez, écoutez, transcrivez puis analysez</p>
             </div>
           </div>
-          <Button variant="ghost" onClick={onClose} className="rounded-full w-10 h-10 p-0 text-slate-400 hover:text-slate-600">
+          <Button variant="ghost" onClick={onClose} className="rounded-full w-10 h-10 p-0 text-stone-400 hover:text-stone-700">
             <X className="w-5 h-5" />
           </Button>
         </div>
 
-        {!analysis ? (
-          /* ══════════ PHASE 1 : DICTÉE ══════════ */
-          <div className="flex-1 overflow-y-auto p-6 space-y-5">
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-start">
-                <AlertCircle className="w-4 h-4 mr-2 mt-0.5 shrink-0" />
-                {error}
-              </div>
-            )}
+        {/* ═══ CONTENU ═══ */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
 
-            {/* Indicateurs de diagnostic navigateur + IA */}
-          <div className="flex items-center justify-center gap-3 mb-2">
-            <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${browserSupported ? 'text-emerald-600' : 'text-red-500'}`}>
-              {browserSupported ? '● Micro OK' : '● Micro non supporté'}
-            </span>
-            <span className="text-stone-300">·</span>
-            <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${aiStatus === 'ready' ? 'text-emerald-600' : aiStatus === 'checking' ? 'text-amber-500' : 'text-red-500'}`}>
-              {aiStatus === 'ready' ? '● IA connectée' : aiStatus === 'checking' ? '● IA connexion...' : '● IA indisponible'}
-            </span>
-          </div>
-
-          {/* Contrôle micro */}
-            <div className="flex flex-col items-center py-4 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
-              {isRecording ? (
-                <div className="relative">
-                  <span className="absolute inset-0 rounded-full bg-blue-400 animate-ping opacity-30" />
-                  <button
-                    onClick={stopRecording}
-                    className="relative w-20 h-20 rounded-full bg-gradient-to-br from-red-500 to-rose-600 text-white shadow-xl flex items-center justify-center"
-                    title="Arrêter la dictée"
-                  >
-                    <MicOff className="w-9 h-9" />
-                  </button>
+          {/* ── PHASE : ÉDITION (enregistrement + transcription + texte) ── */}
+          {(phase === 'idle' || phase === 'recording' || phase === 'recorded' || phase === 'transcribing') && (
+            <>
+              {error && (
+                <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-start animate-in fade-in duration-200">
+                  <AlertCircle className="w-4.5 h-4.5 mr-2.5 mt-0.5 shrink-0" />
+                  {error}
                 </div>
-              ) : (
-                <button
-                  onClick={startRecording}
-                  className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-xl flex items-center justify-center hover:from-blue-600 hover:to-indigo-700 transition-all"
-                  title="Démarrer la dictée"
-                >
-                  <Mic className="w-9 h-9" />
-                </button>
               )}
-              <p className="mt-3 font-medium text-slate-700">
-                {isRecording ? 'Écoute en cours… parlez naturellement' : 'Cliquez sur le micro et dictez votre examen'}
-              </p>
-              <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                {isRecording && (
-                  <span className="flex items-center text-red-600 font-semibold">
-                    <Clock className="w-3 h-3 mr-1" /> {formatTime(elapsed)}
-                  </span>
-                )}
-                <span>● Dictée continue (l'écoute reprend après chaque pause)</span>
-              </div>
-            </div>
 
-            {/* Transcription (éditable) */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                  Transcription {isRecording && <span className="text-red-500">(en direct)</span>}
-                </label>
-                {transcript && (
-                  <button onClick={() => setTranscript('')} className="text-xs text-slate-400 hover:text-red-600 flex items-center">
-                    <Trash2 className="w-3 h-3 mr-1" /> Effacer
-                  </button>
-                )}
-              </div>
-              <div className="relative">
-                <textarea
-                  value={transcript}
-                  onChange={e => setTranscript(e.target.value)}
-                  placeholder={'Ex : « Le patient se plaint de fièvre et de céphalées depuis trois jours. Température 38,5, tension 12 sur 8… Je prescris paracétamol 1000 mg matin et soir pendant cinq jours, je demande une NFS et une goutte épaisse, ainsi qu\'une échographie abdominale, et des soins de pansement quotidien. Je retiens un paludisme simple. »\n\nVous pouvez aussi écrire ou coller le texte ici si le micro n\'est pas disponible.'}
-                  className="w-full min-h-[180px] border border-slate-300 rounded-xl p-4 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                />
-                {isRecording && interim && (
-                  <div className="absolute bottom-3 left-4 right-4 text-lg font-bold text-blue-700 pointer-events-none bg-blue-50/95 backdrop-blur rounded-xl px-4 py-3 border-2 border-blue-300 shadow-md animate-in fade-in slide-in-from-bottom-2 duration-200">
-                    <span className="animate-pulse inline-block w-2.5 h-5 bg-blue-500 rounded-sm mr-3 align-middle" />
-                    {interim}
+              {/* Zone d'enregistrement */}
+              <div className="flex flex-col items-center py-6 border-2 border-dashed border-stone-200 rounded-3xl bg-stone-50/50 space-y-4">
+                {phase === 'recording' ? (
+                  <>
+                    <div className="relative">
+                      <span className="absolute inset-0 rounded-full bg-red-400/30 animate-ping" />
+                      <button
+                        onClick={stopRecording}
+                        className="relative w-24 h-24 rounded-full bg-gradient-to-br from-red-500 to-rose-600 text-white shadow-2xl shadow-red-500/30 grid place-items-center hover:scale-105 active:scale-95 transition-transform"
+                        title="Arrêter l'enregistrement"
+                      >
+                        <Square className="w-9 h-9 fill-white" />
+                      </button>
+                    </div>
+                    <p className="font-bold text-red-600 text-lg">Enregistrement en cours…</p>
+                    <div className="flex items-center gap-3 text-sm text-stone-500">
+                      <span className="font-mono font-bold text-red-500 text-xl">{formatTime(elapsed)}</span>
+                      <span>· Parlez naturellement, tout est enregistré localement</span>
+                    </div>
+                    {/* Visualisation audio (barres animées) */}
+                    <div className="flex items-end gap-1 h-10">
+                      {[...Array(12)].map((_, i) => (
+                        <span
+                          key={i}
+                          className="w-1.5 rounded-full bg-red-400"
+                          style={{
+                            height: `${8 + Math.random() * 28}px`,
+                            animation: `floatY ${0.5 + Math.random() * 0.5}s ease-in-out infinite alternate`,
+                            animationDelay: `${i * 0.08}s`,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </>
+                ) : phase === 'recorded' ? (
+                  <>
+                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-lg grid place-items-center">
+                      <FileAudio className="w-9 h-9" />
+                    </div>
+                    <p className="font-bold text-emerald-600 text-lg">Enregistrement terminé !</p>
+                    {/* Lecteur audio */}
+                    {audioUrl && (
+                      <div className="w-full max-w-md bg-white rounded-2xl border border-stone-200 p-4 shadow-sm">
+                        <audio ref={audioRef} src={audioUrl} controls className="w-full" />
+                      </div>
+                    )}
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <Button onClick={() => void doTranscribe()} size="lg" className="btn-sheen bg-gradient-to-r from-indigo-600 to-violet-600 shadow-glow rounded-2xl">
+                        <><Wand2 className="w-5 h-5 mr-2" /> Transcrire avec l'IA</>
+                      </Button>
+                      <Button onClick={startRecording} variant="outline" size="lg" className="rounded-2xl">
+                        <Mic className="w-4 h-4 mr-2" /> Réenregistrer
+                      </Button>
+                    </div>
+                    <p className="text-xs text-stone-400">Ou tapez directement votre dictée ci-dessous (même résultat).</p>
+                  </>
+                ) : phase === 'transcribing' ? (
+                  <div className="flex flex-col items-center gap-4 py-8">
+                    <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />
+                    <p className="font-semibold text-indigo-600">Transcription de votre audio par l'IA…</p>
+                    <p className="text-xs text-stone-400">Cela peut prendre quelques secondes selon la durée de l'enregistrement</p>
                   </div>
-                )}
-                {isRecording && !interim && !hasResults && (
-                  <div className="absolute bottom-3 left-4 right-4 text-sm text-stone-500 pointer-events-none flex items-center gap-2.5 bg-white/80 rounded px-3 py-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-                    À l'écoute… parlez distinctement dans le micro
-                    <span className="text-stone-400 ml-auto">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>
-                  </div>
-                )}
-              </div>
-              <p className="text-xs text-slate-400 mt-1.5">
-                {transcript.trim() ? `${transcript.trim().split(/\s+/).length} mots — vous pouvez corriger le texte avant analyse` : 'La transcription apparaîtra ici automatiquement pendant que vous parlez.'}
-                {' '}· IA : {getProviderLabel()}
-              </p>
-            </div>
-
-            {/* Confidentialité */}
-            <div className="flex items-start text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg p-3">
-              <ShieldCheck className="w-4 h-4 mr-2 text-emerald-600 shrink-0 mt-0.5" />
-              L'audio est transcrit par votre navigateur (Web Speech) puis structuré par l'IA ({getProviderLabel()}).
-              Ne dictez aucune donnée d'identification du patient (nom, téléphone) — utilisez le dossier affiché.
-            </div>
-          </div>
-        ) : (
-          /* ══════════ PHASE 2 : APERÇU AVANT APPLICATION ══════════ */
-          <div className="flex-1 overflow-y-auto p-6 space-y-5">
-            <div className="flex items-center p-3 bg-emerald-50 border border-emerald-100 rounded-lg text-sm text-emerald-800">
-              <CheckCircle2 className="w-5 h-5 mr-2 shrink-0" />
-              <span>
-                <strong>{Object.keys(analysis).length} champ{Object.keys(analysis).length > 1 ? 's' : ''}</strong> de consultation
-                {enableOrders && countOrders(ordersAnalysis) > 0 && (
-                  <> et <strong>{countOrders(ordersAnalysis)} acte{countOrders(ordersAnalysis) > 1 ? 's' : ''}/prescription{countOrders(ordersAnalysis) > 1 ? 's' : ''}</strong></>
-                )} identifiés dans la dictée.
-                Vérifiez, <strong>décochez ce qui est erroné</strong>, puis appliquez.
-              </span>
-            </div>
-
-            {/* Champs de consultation */}
-            {Object.keys(analysis).length > 0 && (
-              <div className="space-y-2">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-2">Formulaire de consultation</h3>
-                {Object.entries(analysis).map(([key, value]) => (
-                  <label key={`field-${key}`} className={itemClass(`field:${key}`)}>
-                    <input
-                      type="checkbox"
-                      checked={!deselected.has(`field:${key}`)}
-                      onChange={() => toggleDeselected(`field:${key}`)}
-                      className="mt-1 w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    <div className="flex-1">
-                      <p className="text-xs font-bold uppercase tracking-wider text-slate-500">{schema[key]}</p>
-                      <p className="text-sm text-slate-800 mt-0.5">{value}</p>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            )}
-
-            {/* Actes et prescriptions */}
-            {enableOrders && countOrders(ordersAnalysis) > 0 && (
-              <div className="space-y-2">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-2 pt-2">Actes & prescriptions (transmis aux services après paiement)</h3>
-
-                {ordersAnalysis.medications.map((m, i) => (
-                  <label key={`pharm-${i}`} className={itemClass(`pharm:${i}`)}>
-                    <input type="checkbox" checked={!deselected.has(`pharm:${i}`)} onChange={() => toggleDeselected(`pharm:${i}`)} className="mt-1 w-4 h-4 rounded text-blue-600 focus:ring-blue-500" />
-                    <div className="flex-1">
-                      <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center"><Pill className="w-3 h-3 mr-1" /> Ordonnance — médicament {i + 1}</p>
-                      <p className="text-sm text-slate-800 mt-0.5">{formatMedication(m)}</p>
-                    </div>
-                  </label>
-                ))}
-
-                {ordersAnalysis.labTests.map((t, i) => (
-                  <label key={`lab-${i}`} className={itemClass(`lab:${i}`)}>
-                    <input type="checkbox" checked={!deselected.has(`lab:${i}`)} onChange={() => toggleDeselected(`lab:${i}`)} className="mt-1 w-4 h-4 rounded text-blue-600 focus:ring-blue-500" />
-                    <div className="flex-1">
-                      <p className="text-xs font-bold uppercase tracking-wider text-purple-700 flex items-center"><TestTube className="w-3 h-3 mr-1" /> Bon de biologie</p>
-                      <p className="text-sm text-slate-800 mt-0.5">{t}</p>
-                    </div>
-                    <Badge variant="outline" className="bg-purple-50 text-purple-700 shrink-0">{formatGnf(PRICING_CATALOG.lab)}</Badge>
-                  </label>
-                ))}
-
-                {ordersAnalysis.imagingExams.map((e, i) => (
-                  <label key={`ima-${i}`} className={itemClass(`ima:${i}`)}>
-                    <input type="checkbox" checked={!deselected.has(`ima:${i}`)} onChange={() => toggleDeselected(`ima:${i}`)} className="mt-1 w-4 h-4 rounded text-blue-600 focus:ring-blue-500" />
-                    <div className="flex-1">
-                      <p className="text-xs font-bold uppercase tracking-wider text-cyan-700 flex items-center"><Crosshair className="w-3 h-3 mr-1" /> Bon d'imagerie</p>
-                      <p className="text-sm text-slate-800 mt-0.5">{e.type}{e.region ? ` — ${e.region}` : ''}{e.indication ? ` (${e.indication})` : ''}</p>
-                    </div>
-                    <Badge variant="outline" className="bg-cyan-50 text-cyan-700 shrink-0">{formatGnf(PRICING_CATALOG.imagerie)}</Badge>
-                  </label>
-                ))}
-
-                {ordersAnalysis.nursingCare.map((s, i) => (
-                  <label key={`nurse-${i}`} className={itemClass(`nurse:${i}`)}>
-                    <input type="checkbox" checked={!deselected.has(`nurse:${i}`)} onChange={() => toggleDeselected(`nurse:${i}`)} className="mt-1 w-4 h-4 rounded text-blue-600 focus:ring-blue-500" />
-                    <div className="flex-1">
-                      <p className="text-xs font-bold uppercase tracking-wider text-rose-700 flex items-center"><Syringe className="w-3 h-3 mr-1" /> Soins infirmiers</p>
-                      <p className="text-sm text-slate-800 mt-0.5">{s}</p>
-                    </div>
-                    <Badge variant="outline" className="bg-rose-50 text-rose-700 shrink-0">{formatGnf(PRICING_CATALOG.nursing)}</Badge>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Pied : actions */}
-        <div className="p-4 border-t border-slate-200 bg-slate-50 flex flex-col-reverse sm:flex-row justify-between gap-3 shrink-0">
-          {!analysis ? (
-            <>
-              <Button variant="outline" onClick={onClose}>Annuler</Button>
-              <Button
-                onClick={() => { void analyze(); }}
-                disabled={!transcript.trim() || isAnalyzing}
-                className="bg-blue-600 hover:bg-blue-700 shadow-md"
-                size="lg"
-              >
-                {isAnalyzing ? (
-                  <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Analyse en cours…</>
                 ) : (
-                  <><Wand2 className="w-5 h-5 mr-2" /> Analyser la dictée</>
+                  <>
+                    <button
+                      onClick={() => void startRecording()}
+                      className="relative w-24 h-24 rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-2xl shadow-indigo-600/30 grid place-items-center hover:scale-105 active:scale-95 transition-transform pulse-ring"
+                      title="Démarrer l'enregistrement"
+                    >
+                      <Mic className="w-10 h-10" />
+                    </button>
+                    <p className="font-semibold text-stone-700 text-lg">Cliquez sur le micro et parlez</p>
+                    <p className="text-sm text-stone-400 text-center max-w-sm">
+                      L'audio est enregistré <strong>localement</strong> sur votre appareil.
+                      Ensuite, l'IA le transcrira en texte, puis le structurera en dossier médical.
+                    </p>
+                  </>
                 )}
-              </Button>
+              </div>
+
+              {/* Zone de texte (transcription ou saisie manuelle) */}
+              {phase !== 'transcribing' && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-section">
+                      Transcription {transcript && <span className="text-emerald-600 normal-case">✓ {transcript.split(/\s+/).length} mots</span>}
+                    </label>
+                    {transcript && (
+                      <button onClick={() => setTranscript('')} className="text-xs text-stone-400 hover:text-red-600 flex items-center font-semibold">
+                        <Trash2 className="w-3.5 h-3.5 mr-1" /> Effacer
+                      </button>
+                    )}
+                  </div>
+                  <textarea
+                    value={transcript}
+                    onChange={e => { setTranscript(e.target.value); setError(''); }}
+                    placeholder={'Le texte de votre dictée apparaîtra ici après transcription IA.\n\nVous pouvez aussi taper ou coller votre texte directement — le bouton « Analyser » utilisera ce texte dans tous les cas.'}
+                    className="w-full min-h-[160px] border-2 border-stone-200 rounded-2xl p-4 text-[15px] leading-relaxed focus:outline-none focus:ring-3 focus:ring-indigo-500/15 focus:border-indigo-500 bg-white/70 transition-all"
+                  />
+                  <p className="text-micro mt-2">IA : {getProviderLabel()} · le texte est modifiable avant analyse</p>
+                </div>
+              )}
+
+              <div className="flex items-start text-xs text-stone-500 bg-stone-50 border border-stone-100 rounded-xl p-3">
+                <ShieldCheck className="w-4 h-4 mr-2.5 text-emerald-600 shrink-0 mt-0.5" />
+                L'audio reste sur votre appareil pendant l'enregistrement. La transcription est effectuée par l'IA ({getProviderLabel()}).
+                Ne dictez aucune donnée d'identification du patient.
+              </div>
             </>
-          ) : (
+          )}
+
+          {/* ── PHASE : APERÇU ── */}
+          {phase === 'preview' && analysis && (
+            <div className="space-y-5">
+              <div className="flex items-center p-3.5 bg-emerald-50 border border-emerald-100 rounded-xl text-sm text-emerald-800">
+                <CheckCircle2 className="w-5 h-5 mr-2.5 shrink-0" />
+                <span>
+                  <strong>{Object.keys(analysis).length} champ{Object.keys(analysis).length > 1 ? 's' : ''}</strong> de consultation
+                  {enableOrders && countOrders(ordersAnalysis) > 0 && (
+                    <> et <strong>{countOrders(ordersAnalysis)} acte{countOrders(ordersAnalysis) > 1 ? 's' : ''}</strong></>
+                  )} identifiés. Vérifiez, <strong>décochez ce qui est erroné</strong>, puis appliquez.
+                </span>
+              </div>
+
+              {Object.keys(analysis).length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-section border-b border-stone-100 pb-2">Formulaire de consultation</h3>
+                  {Object.entries(analysis).map(([key, value]) => (
+                    <label key={`field-${key}`} className={itemClass(`field:${key}`)}>
+                      <input type="checkbox" checked={!deselected.has(`field:${key}`)} onChange={() => toggleDeselected(`field:${key}`)} className="mt-1 w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500" />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{schema[key]}</p>
+                        <p className="text-sm text-stone-800 mt-0.5">{value}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              {enableOrders && countOrders(ordersAnalysis) > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-section border-b border-stone-100 pb-2 pt-2">Actes & prescriptions (transmis aux services après paiement)</h3>
+                  {ordersAnalysis.medications.map((m, i) => (
+                    <label key={`pharm-${i}`} className={itemClass(`pharm:${i}`)}>
+                      <input type="checkbox" checked={!deselected.has(`pharm:${i}`)} onChange={() => toggleDeselected(`pharm:${i}`)} className="mt-1 w-4 h-4 rounded text-indigo-600" />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center"><Pill className="w-3 h-3 mr-1" /> Ordonnance — médicament {i + 1}</p>
+                        <p className="text-sm text-stone-800 mt-0.5">{formatMedication(m)}</p>
+                      </div>
+                    </label>
+                  ))}
+                  {ordersAnalysis.labTests.map((t, i) => (
+                    <label key={`lab-${i}`} className={itemClass(`lab:${i}`)}>
+                      <input type="checkbox" checked={!deselected.has(`lab:${i}`)} onChange={() => toggleDeselected(`lab:${i}`)} className="mt-1 w-4 h-4 rounded text-indigo-600" />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold uppercase tracking-wider text-purple-700 flex items-center"><TestTube className="w-3 h-3 mr-1" /> Bon de biologie</p>
+                        <p className="text-sm text-stone-800 mt-0.5">{t}</p>
+                      </div>
+                      <Badge variant="outline" className="bg-purple-50 text-purple-700 shrink-0">{formatGnf(PRICING_CATALOG.lab)}</Badge>
+                    </label>
+                  ))}
+                  {ordersAnalysis.imagingExams.map((e, i) => (
+                    <label key={`ima-${i}`} className={itemClass(`ima:${i}`)}>
+                      <input type="checkbox" checked={!deselected.has(`ima:${i}`)} onChange={() => toggleDeselected(`ima:${i}`)} className="mt-1 w-4 h-4 rounded text-indigo-600" />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold uppercase tracking-wider text-cyan-700 flex items-center"><Crosshair className="w-3 h-3 mr-1" /> Bon d'imagerie</p>
+                        <p className="text-sm text-stone-800 mt-0.5">{e.type}{e.region ? ` — ${e.region}` : ''}{e.indication ? ` (${e.indication})` : ''}</p>
+                      </div>
+                      <Badge variant="outline" className="bg-cyan-50 text-cyan-700 shrink-0">{formatGnf(PRICING_CATALOG.imagerie)}</Badge>
+                    </label>
+                  ))}
+                  {ordersAnalysis.nursingCare.map((s, i) => (
+                    <label key={`nurse-${i}`} className={itemClass(`nurse:${i}`)}>
+                      <input type="checkbox" checked={!deselected.has(`nurse:${i}`)} onChange={() => toggleDeselected(`nurse:${i}`)} className="mt-1 w-4 h-4 rounded text-indigo-600" />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold uppercase tracking-wider text-rose-700 flex items-center"><Syringe className="w-3 h-3 mr-1" /> Soins infirmiers</p>
+                        <p className="text-sm text-stone-800 mt-0.5">{s}</p>
+                      </div>
+                      <Badge variant="outline" className="bg-rose-50 text-rose-700 shrink-0">{formatGnf(PRICING_CATALOG.nursing)}</Badge>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── PIED ── */}
+        <div className="p-4 border-t border-stone-100 bg-stone-50/50 flex flex-col-reverse sm:flex-row justify-between gap-3 shrink-0">
+          {phase === 'preview' ? (
             <>
-              <Button variant="outline" onClick={() => { setAnalysis(null); setOrdersAnalysis(EMPTY_ORDERS); }}>
+              <Button variant="outline" onClick={() => setPhase('idle')}>
                 <ArrowLeft className="w-4 h-4 mr-2" /> Revenir à la dictée
               </Button>
-              <Button
-                onClick={apply}
-                disabled={selectedFields + selectedOrders === 0}
-                className="bg-emerald-600 hover:bg-emerald-700 shadow-md"
-                size="lg"
-              >
+              <Button onClick={apply} disabled={selectedFields + selectedOrders === 0} size="lg" className="btn-sheen bg-gradient-to-r from-emerald-600 to-teal-600 shadow-lg shadow-emerald-600/30 rounded-xl">
                 <CheckCircle2 className="w-5 h-5 mr-2" />
                 {selectedFields > 0 && selectedOrders > 0 && `Appliquer ${selectedFields} champ${selectedFields > 1 ? 's' : ''} et ${selectedOrders} acte${selectedOrders > 1 ? 's' : ''}`}
                 {selectedFields > 0 && selectedOrders === 0 && `Appliquer ${selectedFields} champ${selectedFields > 1 ? 's' : ''}`}
                 {selectedFields === 0 && selectedOrders > 0 && `Appliquer ${selectedOrders} acte${selectedOrders > 1 ? 's' : ''}`}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={onClose}>Annuler</Button>
+              <Button
+                onClick={() => void analyze()}
+                disabled={!transcript.trim() || phase === 'analyzing' || phase === 'recording' || phase === 'transcribing'}
+                size="lg"
+                className="btn-sheen bg-gradient-to-r from-indigo-600 to-violet-600 shadow-glow rounded-xl"
+              >
+                {phase === 'analyzing' ? (
+                  <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Analyse en cours…</>
+                ) : (
+                  <><Wand2 className="w-5 h-5 mr-2" /> Analyser la dictée</>
+                )}
               </Button>
             </>
           )}

@@ -109,3 +109,54 @@ export function extractJsonObject(raw: string): Record<string, unknown> | null {
     return null;
   }
 }
+
+/**
+ * Transcrit un audio enregistré (Blob) en texte via OpenRouter.
+ * Utilise un modèle multimodal qui accepte l'audio en entrée.
+ */
+export async function transcribeAudio(audioBlob: Blob): Promise<string> {
+  if (!getActiveProvider()) {
+    throw new Error('IA non configurée pour la transcription audio.');
+  }
+
+  // Convertir le Blob en base64
+  const base64Audio = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      resolve(result.split(',')[1]); // enlever "data:audio/webm;base64,"
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(audioBlob);
+  });
+
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${openRouterKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': window.location.origin,
+      'X-Title': 'Hospitalis',
+    },
+    body: JSON.stringify({
+      model: 'openai/gpt-4o-mini-audio-preview',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Transcris cet audio médical en français. Réponds UNIQUEMENT avec le texte transcrit, sans commentaire ni formatage.' },
+          { type: 'input_audio', input_audio: { data: base64Audio, format: 'webm' } },
+        ],
+      }],
+    }),
+  });
+
+  if (!res.ok) {
+    const detail = (await res.text()).slice(0, 200);
+    throw new Error(`Transcription audio HTTP ${res.status} : ${detail}`);
+  }
+
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error('Transcription audio vide.');
+  return content;
+}
