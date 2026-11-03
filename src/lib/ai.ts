@@ -185,5 +185,9 @@ export async function transcribeAudio(audioBlob: Blob): Promise<string> {
     }
   }
 
-  throw new Error(`Tous les modèles audio ont échoué. Dernière erreur : ${lastError}`);
+  throw new Error(
+    'Crédits OpenRouter insuffisants pour la transcription audio. ' +
+    'Ajoutez 5$ sur https://openrouter.ai/credits (≈1 600 minutes de transcription). ' +
+    'En attendant, vous pouvez écouter l\'audio et taper le texte manuellement — l\'analyse IA fonctionne gratuitement avec le texte.'
+  );
 }
