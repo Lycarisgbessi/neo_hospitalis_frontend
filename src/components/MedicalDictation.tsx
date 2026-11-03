@@ -185,67 +185,104 @@ export function MedicalDictation({ open, onClose, pageName, schema, enableOrders
     }
   }, []);
 
-  const startRecording = useCallback(() => {
+  const startRecording = useCallback(async () => {
+    setError('');
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
-      setError("Non supporté — utilisez Chrome/Edge, ou tapez directement votre dictée ci-dessous.");
+      setError("🎙️ Reconnaissance vocale non supportée par ce navigateur. Utilisez CHROME ou EDGE. Vous pouvez aussi taper votre dictée ci-dessous (même résultat).");
       return;
     }
-    setError('');
+
+    // ── ÉTAPE 1 : Forcer la demande de permission micro ──
+    // getUserMedia déclenche la popup "Autoriser le microphone" si elle
+    // n'a jamais été affichée. Sans ça, SpeechRecognition échoue en silence.
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // On relève immédiatement le stream (on ne veut pas enregistrer, juste la permission)
+      stream.getTracks().forEach(t => t.stop());
+      console.log('[Dictée] ✓ Permission microphone accordée');
+    } catch (permErr: unknown) {
+      const errName = permErr instanceof Error ? permErr.name : '';
+      console.error('[Dictée] ✗ Permission refusée:', errName);
+      if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
+        setError("🔒 MICRO REFUSÉ — Cliquez sur l'icône cadenas 🔒 à gauche de l'URL → Microphone → Autoriser, puis rechargez la page et réessayez.");
+      } else if (errName === 'NotFoundError') {
+        setError("🎤 Aucun microphone détecté sur cet appareil. Branchez un micro ou utilisez la saisie manuelle ci-dessous.");
+      } else {
+        setError("⚠️ Impossible d'accéder au microphone (" + errName + "). Utilisez la saisie manuelle ci-dessous.");
+      }
+      return;
+    }
+
+    // ── ÉTAPE 2 : Démarrer la reconnaissance vocale ──
     setElapsed(0);
     recordingRef.current = true;
 
-    const recognition = new SR();
-    recognition.lang = 'fr-FR';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
+    try {
+      const recognition = new SR();
+      recognition.lang = 'fr-FR';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
 
-    recognition.onresult = (event: SpeechRecognitionEventLike) => {
-      let finalText = '';
-      let interimText = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const res = event.results[i];
-        const txt = res[0].transcript;
-        if (res.isFinal) finalText += txt;
-        else interimText += txt;
-      }
-      if (finalText.trim()) {
-        setTranscript(prev => (prev.trim() ? prev.trim() + ' ' : '') + finalText.trim());
-      }
-      setInterim(interimText);
-    };
+      recognition.onstart = () => {
+        console.log('[Dictée] ✓ Reconnaissance démarrée — parlez maintenant');
+        setIsRecording(true);
+      };
 
-    recognition.onerror = (e: SpeechRecognitionErrorEventLike) => {
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-        setError("Accès au microphone refusé. Autorisez le micro dans le navigateur, ou saisissez la dictée manuellement ci-dessous.");
-        recordingRef.current = false;
+      recognition.onresult = (event: SpeechRecognitionEventLike) => {
+        let finalText = '';
+        let interimText = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const res = event.results[i];
+          const txt = res[0].transcript;
+          if (res.isFinal) finalText += txt;
+          else interimText += txt;
+        }
+        if (finalText.trim()) {
+          console.log('[Dictée] Texte final:', finalText.trim().slice(0, 80));
+          setTranscript(prev => (prev.trim() ? prev.trim() + ' ' : '') + finalText.trim());
+        }
+        setInterim(interimText);
+      };
+
+      recognition.onerror = (e: SpeechRecognitionErrorEventLike) => {
+        console.error('[Dictée] Erreur:', e.error);
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          setError("🔒 Micro refusé — cliquez sur le cadenas 🔒 dans la barre d'adresse → Microphone → Autoriser → rechargez la page.");
+          recordingRef.current = false;
+          setIsRecording(false);
+        } else if (e.error === 'no-speech') {
+          // Pas grave : le silence déclenche un redémarrage automatique
+          console.log('[Dictée] Silence détecté, redémarrage...');
+        } else if (e.error === 'network') {
+          setError("📡 Erreur réseau — la reconnaissance vocale nécessite une connexion internet (serveurs Google).");
+          recordingRef.current = false;
+          setIsRecording(false);
+        } else if (e.error === 'audio-capture') {
+          setError("🎤 Micro introuvable — vérifiez qu'il est branché et sélectionné comme entrée par défaut.");
+          recordingRef.current = false;
+          setIsRecording(false);
+        }
+      };
+
+      recognition.onend = () => {
+        if (recordingRef.current) {
+          try { recognition.start(); console.log('[Dictée] Redémarrage auto'); } catch { /* déjà démarré */ }
+          return;
+        }
         setIsRecording(false);
-      } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
-        console.warn('[Dictée] Erreur reconnaissance:', e.error);
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-        setError("Accès au microphone REFUSÉ. Cliquez sur l'icône 🔒 dans la barre d'adresse → Autoriser le microphone, puis réessayez.");
-      } else if (e.error === 'no-speech') {
-        setError("Aucune voix détectée. Vérifiez que votre micro fonctionne et parlez plus fort.");
-      } else if (e.error === 'network') {
-        setError("Erreur réseau pendant la reconnaissance. Vérifiez votre connexion internet.");
-      }
-      }
-    };
+        setInterim('');
+      };
 
-    recognition.onend = () => {
-      // Chrome coupe la session après un silence : on relance automatiquement
-      // tant que le médecin n'a pas appuyé sur « Arrêter ».
-      if (recordingRef.current) {
-        try { recognition.start(); return; } catch { /* redémarrage impossible */ }
-      }
-      setIsRecording(false);
-      setInterim('');
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
-    setIsRecording(true);
+      recognitionRef.current = recognition;
+      recognition.start();
+      console.log('[Dictée] recognition.start() appelé');
+    } catch (startErr) {
+      console.error('[Dictée] Erreur au démarrage:', startErr);
+      setError("⚠️ Impossible de démarrer la reconnaissance. Utilisez la saisie manuelle ci-dessous.");
+      recordingRef.current = false;
+    }
   }, []);
 
   const analyze = async () => {
