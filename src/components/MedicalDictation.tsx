@@ -126,6 +126,7 @@ function parseOrders(parsed: Record<string, unknown>): DictatedOrders {
  */
 export function MedicalDictation({ open, onClose, pageName, schema, enableOrders = false, onApply }: MedicalDictationProps) {
   const [isRecording, setIsRecording] = useState(false);
+  const [hasResults, setHasResults] = useState(false);
   const [interim, setInterim] = useState('');
   const [transcript, setTranscript] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -228,6 +229,14 @@ export function MedicalDictation({ open, onClose, pageName, schema, enableOrders
       recognition.onstart = () => {
         console.log('[Dictée] ✓ Reconnaissance démarrée — parlez maintenant');
         setIsRecording(true);
+        setHasResults(false);
+        // Timeout : si aucun résultat après 8 secondes, avertir
+        window.setTimeout(() => {
+          if (!hasResults && recordingRef.current) {
+            console.warn('[Dictée] ⚠️ 8s sans résultat — problème de connexion aux serveurs Google ?');
+            setError(prev => prev || "⚠️ Aucune voix détectée après 8 secondes. Causes possibles : connexion lente vers les serveurs Google (la reconnaissance vocale envoie l'audio vers Google), micro mal sélectionné, ou parlez plus fort. Vous pouvez taper votre dictée manuellement ci-dessous.");
+          }
+        }, 8000);
       };
 
       recognition.onresult = (event: SpeechRecognitionEventLike) => {
@@ -240,9 +249,10 @@ export function MedicalDictation({ open, onClose, pageName, schema, enableOrders
           else interimText += txt;
         }
         if (finalText.trim()) {
-          console.log('[Dictée] Texte final:', finalText.trim().slice(0, 80));
+          console.log('[Dictée] FINAL:', finalText.trim().slice(0, 80));
           setTranscript(prev => (prev.trim() ? prev.trim() + ' ' : '') + finalText.trim());
         }
+        if (interimText.trim()) setHasResults(true);
         setInterim(interimText);
       };
 
@@ -508,8 +518,16 @@ Omette les clés sans contenu.`;
                   className="w-full min-h-[180px] border border-slate-300 rounded-xl p-4 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 />
                 {isRecording && interim && (
-                  <div className="absolute bottom-2 left-4 right-4 text-sm italic text-slate-400 pointer-events-none bg-white/80 rounded px-1">
-                    {interim}…
+                  <div className="absolute bottom-3 left-4 right-4 text-lg font-bold text-blue-700 pointer-events-none bg-blue-50/95 backdrop-blur rounded-xl px-4 py-3 border-2 border-blue-300 shadow-md animate-in fade-in slide-in-from-bottom-2 duration-200">
+                    <span className="animate-pulse inline-block w-2.5 h-5 bg-blue-500 rounded-sm mr-3 align-middle" />
+                    {interim}
+                  </div>
+                )}
+                {isRecording && !interim && !hasResults && (
+                  <div className="absolute bottom-3 left-4 right-4 text-sm text-stone-500 pointer-events-none flex items-center gap-2.5 bg-white/80 rounded px-3 py-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+                    À l'écoute… parlez distinctement dans le micro
+                    <span className="text-stone-400 ml-auto">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>
                   </div>
                 )}
               </div>
