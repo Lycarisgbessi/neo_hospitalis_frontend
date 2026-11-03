@@ -174,3 +174,27 @@ Nouvelle loupe : toutes les validations précédentes tournaient en mode CLINIQU
 - Float-y · Orbes · Glass · Mesh gradients · prefers-reduced-motion
 
 **Vérification** : 4 suites E2E adaptées et **100% vertes** (16+18+16+13=63 PASS) · tsc strict 0 erreur · build OK · commit GitHub `fcbdae5`.
+
+## Cycle 16 — REFONTE DA NIVEAU 2 : Effets visuels avancés (terminé)
+**5 nouveaux composants visuels + intégration dans 4 pages · 63/63 PASS · commit `99565ad`**
+
+### Nouveaux composants (VisualFX.tsx + TiltCard.tsx)
+- **ParticleCanvas** : croix pharmaceutiques, cercles cellulaires et ondes de pouls qui flottent avec parallaxe vers la souris — canvas GPU-friendly, densité configurable, intégrée au wizard (30 particules), auth branding (18) et dashboard hero (14)
+- **ConfettiBurst** : explosion de 80 confettis colorés (6 teintes, gravité + friction + rotation) au lancement du wizard — 2.2s de célébration
+- **Sparkline** : mini-graphique de tendance SVG avec gradient fill, point final pulsé et courbe lissée — intégré aux cartes Revenus et Admissions du dashboard
+- **RevealTitle** : titre révélé caractère par caractère (25ms de décalage par lettre, slide-in depuis le bas) — utilisé pour les titres du wizard
+- **TiltCard** : carte avec rotation 3D perspective (800px) suivant le curseur + reflet lumineux radial (glare) — utilisé pour les cartes atouts et les cartes type d'établissement
+
+### Améliorations wizard
+- **Logo orbital** : anneaux rotatifs (20s/30s) avec satellites lumineux bleu et violet
+- **Transitions cinématiques** : scale(0.92) + rotateY(±8°) + blur(6px) + slide(±120px) entre étapes
+- **Anneau de progression** SVG avec gradient blue→violet animé par framer-motion
+- **Modules en cascade** : stagger 60ms + spring sur les cochés + hover translate-y
+- **Avatar admin oscillant** : rotation douce continue (4s)
+
+### Améliorations dashboard
+- Hero : mesh-dark + ParticleCanvas + rounded-3xl + shadow-2xl
+- Sparklines sur cartes Revenus et Admissions
+
+### Transitions de page
+- Perspective 1200px + rotateX(2°) + scale(0.985) + blur(4°) → page nette
