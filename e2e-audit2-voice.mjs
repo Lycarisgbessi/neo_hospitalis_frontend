@@ -118,18 +118,18 @@ await sleep(1500);
 // ── Helpers parcours refondu (wizard + auth) ──
 async function wizardSetup(adminName, adminPwd = "secret123", hospitalName = "Clinique Test") {
   await waitText("Configurer mon", 10000);
-  await clickBtn("Configurer mon"); await sleep(600);
+  await clickBtn("Configurer mon"); await sleep(1200);
   await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder && i.placeholder.includes('Clinique'))`, hospitalName);
-  await clickBtn("Continuer"); await sleep(600);
-  await clickBtn("Continuer"); await sleep(600);
+  await clickBtn("Continuer"); await sleep(1200);
+  await clickBtn("Continuer"); await sleep(1200);
   await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder && i.placeholder.includes('Dr Awa'))`, adminName);
   await setVal(`document.querySelector('input[type=password]')`, adminPwd);
-  await clickBtn("Continuer"); await sleep(600);
-  await clickBtn("Lancer Hospitalis"); await sleep(2200);
+  await clickBtn("Continuer"); await sleep(1200);
+  await clickBtn("Lancer Hospitalis"); await sleep(3000);
 }
 async function createAccountByRole(roleLabel, name, pwd = "secret123", service = null) {
   await clickBtn("Déconnexion"); await waitText("Créer un compte", 8000); await sleep(500);
-  await clickBtn("Créer un compte"); await sleep(600);
+  await clickBtn("Créer un compte"); await sleep(1200);
   await evalP(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes(${JSON.stringify(roleLabel)}) && x.className.includes('rounded-2xl')); if (b) b.click(); return 1; })()`);
   await sleep(500);
   if (service) {
@@ -256,7 +256,7 @@ while (Date.now() - s3 < AI_WAIT) {
 step("V3-analyse", ok3);
 await clickBtn("Appliquer"); await sleep(900);
 // La case « Hospitaliser » vit dans l'onglet Diagnostics & Actes — on y va d'abord
-await clickBtn("Diagnostics & Actes"); await sleep(600);
+await clickBtn("Diagnostics & Actes"); await sleep(1200);
 const hospCoche = await evalP(`(() => { const cb = [...document.querySelectorAll('input[type=checkbox]')].find(c => c.closest('label') && c.closest('label').textContent.includes('Hospitaliser')); return cb ? cb.checked : null; })()`);
 const bouton = await evalP(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes('Hospitaliser & Clôturer')); return b ? 1 : 0; })()`);
 await clickBtn("Hospitaliser & Clôturer"); await sleep(1000);

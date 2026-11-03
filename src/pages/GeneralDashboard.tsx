@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import { Sparkline, ParticleCanvas } from '../components/VisualFX';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Activity, Users, CreditCard, Stethoscope, Store, TestTube, Building2, TrendingUp, Clock, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 
@@ -65,9 +66,10 @@ export default function GeneralDashboard() {
     trendLabel?: string;
     absoluteValue?: boolean;
     colorClass: string;
+    sparkData?: number[];
   }
 
-  const StatCard = ({ title, value, icon, trend, trendLabel, absoluteValue, colorClass }: StatCardProps) => {
+  const StatCard = ({ title, value, icon, trend, trendLabel, absoluteValue, colorClass, sparkData }: StatCardProps) => {
     // Audit Z6 : compteur animé pour les valeurs numériques (montants inclus)
     const isNumeric = typeof value === 'number';
     const animated = useCountUp(isNumeric ? value : 0);
@@ -103,6 +105,9 @@ export default function GeneralDashboard() {
                 <span className="text-slate-400 ml-2">{trendLabel ?? 'vs hier'}</span>
              </div>
            )}
+           {sparkData && sparkData.length > 1 && (
+             <div className="mt-3"><Sparkline data={sparkData} width={140} height={32} color="#3b82f6" /></div>
+           )}
         </CardContent>
       </Card>
     );
@@ -110,7 +115,8 @@ export default function GeneralDashboard() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-900 text-white p-8 rounded-2xl shadow-lg relative overflow-hidden">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-mesh-dark text-white p-8 rounded-3xl shadow-2xl relative overflow-hidden">
+        <ParticleCanvas density={14} speed={0.18} dark />
         <div className="relative z-10">
           <h1 className="text-3xl font-bold tracking-tight">Bonjour, {currentUser?.name} 👋</h1>
           <p className="text-indigo-300/90 mt-1 text-sm font-semibold uppercase tracking-[0.14em]">{hospitalProfile.name}</p>
@@ -131,6 +137,7 @@ export default function GeneralDashboard() {
           icon={<Users className="w-6 h-6 text-indigo-700" />}
           colorClass="bg-indigo-100/80"
           trend={patientsTrend}
+          sparkData={[3, 5, 2, 8, patientsToday]}
         />
         <StatCard 
           title="Recettes du Jour"
@@ -139,6 +146,7 @@ export default function GeneralDashboard() {
           colorClass="bg-emerald-100/80"
           trend={revenueTrend}
           absoluteValue
+          sparkData={[120000, 250000, 80000, 310000, revenueToday]}
         />
          <StatCard 
           title="En Salle d'Attente"

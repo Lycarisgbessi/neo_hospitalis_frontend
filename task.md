@@ -154,3 +154,23 @@ Nouvelle loupe : toutes les validations précédentes tournaient en mode CLINIQU
 - Repo git initialisé localement (branche main, 58 fichiers, .env/node_modules/dist/.vercel/zips exclus).
 - Repo GitHub créé et poussé : **https://github.com/Lycarisgbessi/neo_hospitalis_frontend** (public) — commit initial « Hospitalis — version auditée complète (cycles 1-13) ».
 - Jumeau du backend `Lycarisgbessi/neo_hospitalis` (NestJS). Le repo vide travaileinsof-web/neo_hospitalis est abandonné (à supprimer si souhaité).
+
+## Cycle 15 — REFONTE DIRECTION ARTISTIQUE COMPLÈTE (terminé)
+**3 chantiers, 19 fichiers modifiés (+1437/-408 lignes), 63/63 tests E2E verts :**
+
+### 1. Onboarding immersif (la demande principale)
+- **SetupPage** : wizard 5 étapes — accueil avec anneaux pulsés + orbes flottants, cartes visuelles Clinique/Polyclinique, identité de l'établissement (nom/ville/tél configurables), grille riche de modules avec presets rapides, compte administrateur créé DANS le wizard (fin de la devinette), récapitulatif animé, succès SVG dessiné, auto-connexion vers le dashboard
+- **AuthPage** : split-screen desktop (panneau branding mesh-dark avec atouts produit + formulaire), segmented animé Connexion/Créer, rôles en CARTES VISUELLES groupées Médical/Administratif (fin du pré-choix « volet »), détection compte existant avec badge, service demandé uniquement pour les médecins en polyclinique
+- **HospitalProfile** : identité de l'établissement propagée sur sidebar, dashboard, reçus et ordonnances A4 ; éditable dans Paramètres
+
+### 2. Gestion d'espace
+- Sidebar **repliable** (76↔256px, poignée flottante, tooltips, état persisté)
+- Contenu borné `max-w-[1440px]` · Header mobile en verre dépoli
+
+### 3. Animations & micro-interactions poussées
+- Ripple ink sur tous les boutons · Sheen sweep sur primaires
+- Pastille blanche glissante sur Tabs (layoutId framer-motion)
+- SuccessCheck SVG (stroke-dasharray) · Shake d'erreur · Anneaux pulsés
+- Float-y · Orbes · Glass · Mesh gradients · prefers-reduced-motion
+
+**Vérification** : 4 suites E2E adaptées et **100% vertes** (16+18+16+13=63 PASS) · tsc strict 0 erreur · build OK · commit GitHub `fcbdae5`.

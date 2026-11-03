@@ -76,18 +76,18 @@ await sleep(1500);
 // ── Helpers parcours refondu (wizard + auth) ──
 async function wizardSetup(adminName, adminPwd = "secret123", hospitalName = "Clinique Test") {
   await waitText("Configurer mon", 10000);
-  await clickBtn("Configurer mon"); await sleep(600);
+  await clickBtn("Configurer mon"); await sleep(1200);
   await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder && i.placeholder.includes('Clinique'))`, hospitalName);
-  await clickBtn("Continuer"); await sleep(600);
-  await clickBtn("Continuer"); await sleep(600);
+  await clickBtn("Continuer"); await sleep(1200);
+  await clickBtn("Continuer"); await sleep(1200);
   await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder && i.placeholder.includes('Dr Awa'))`, adminName);
   await setVal(`document.querySelector('input[type=password]')`, adminPwd);
-  await clickBtn("Continuer"); await sleep(600);
-  await clickBtn("Lancer Hospitalis"); await sleep(2200);
+  await clickBtn("Continuer"); await sleep(1200);
+  await clickBtn("Lancer Hospitalis"); await sleep(3000);
 }
 async function createAccountByRole(roleLabel, name, pwd = "secret123", service = null) {
   await clickBtn("Déconnexion"); await waitText("Créer un compte", 8000); await sleep(500);
-  await clickBtn("Créer un compte"); await sleep(600);
+  await clickBtn("Créer un compte"); await sleep(1200);
   await evalP(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes(${JSON.stringify(roleLabel)}) && x.className.includes('rounded-2xl')); if (b) b.click(); return 1; })()`);
   await sleep(500);
   if (service) {
@@ -230,7 +230,7 @@ step("FL7-pharmacie-dispensation",
 // ═══ FL8 : Le GÉNÉRALISTE voit TOUT (retour services → médecin) ═══
 await nav("/doctor"); await waitText("File d'attente");
 await selCard("Mariama Sylla"); await sleep(800);
-await clickBtn("Historique & Infos"); await sleep(600);
+await clickBtn("Historique & Infos"); await sleep(1200);
 // NB : les titres de sections sont rendus en MAJUSCULES par CSS → comparaison insensible à la casse
 const vue = await evalP(`(() => { const t = document.body.innerText.toLowerCase(); return {
   triage: t.includes("triage à l'admission") && t.includes('urgence') && t.includes('métrorragies'),
@@ -246,7 +246,7 @@ step("FL8-dossier-complet", vue.labo && vue.imagerie && vue.dispensation && vue.
   `labo=${vue.labo} ima=${vue.imagerie} disp=${vue.dispensation}`);
 
 // ═══ FL9 : X4 — le médecin voit ses prescriptions EXÉCUTÉES ═══
-await clickBtn("Diagnostics & Actes"); await sleep(600);
+await clickBtn("Diagnostics & Actes"); await sleep(1200);
 const executes = await evalP(`(document.body.innerText.match(/Exécuté ✓/g) || []).length`);
 const payes = await evalP(`(document.body.innerText.match(/Payé(?! ✓)/g) || []).length`);
 step("FL9-X4-execution-visible", executes >= 2, `badges Exécuté=${executes}`);
@@ -274,7 +274,7 @@ step("FL11-Y2-age-cretes", vieux === undefined || vieux.age <= 120, vieux === un
 
 // ═══ FL12 (Y1) : montant négatif de bon de commande écrêté ═══
 await nav("/labo"); await waitText("Laboratoire de Biologie");
-await clickBtn("Cmd Réactifs (PO)"); await sleep(600);
+await clickBtn("Cmd Réactifs (PO)"); await sleep(1200);
 await setVal(`[...document.querySelectorAll('textarea')].find(t => t.placeholder && t.placeholder.includes('Kits Glucose'))`, "Test réactifs");
 await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder === 'Ex: 1500000')`, "-5000000");
 await sleep(200);

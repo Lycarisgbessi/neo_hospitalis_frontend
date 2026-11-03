@@ -92,20 +92,20 @@ await sleep(1200);
 // ── Helpers parcours refondu (wizard + auth) ──
 async function wizardSetup(adminName, adminPwd = "secret123", hospitalName = "Clinique Test", isPoly = false) {
   await waitText("Configurer mon", 10000);
-  await clickBtn("Configurer mon"); await sleep(600);
+  await clickBtn("Configurer mon"); await sleep(1200);
   if (isPoly) {
     await clickBtn("Polyclinique"); await sleep(400);
   }
   await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder && i.placeholder.includes('Clinique'))`, hospitalName);
-  await clickBtn("Continuer"); await sleep(600);
-  await clickBtn("Continuer"); await sleep(600);
+  await clickBtn("Continuer"); await sleep(1200);
+  await clickBtn("Continuer"); await sleep(1200);
   await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder && i.placeholder.includes('Dr Awa'))`, adminName);
   await setVal(`document.querySelector('input[type=password]')`, adminPwd);
-  await clickBtn("Continuer"); await sleep(600);
-  await clickBtn("Lancer Hospitalis"); await sleep(2200);
+  await clickBtn("Continuer"); await sleep(1200);
+  await clickBtn("Lancer Hospitalis"); await sleep(3000);
 }
 async function createAccountByRole(roleLabel, name, pwd = "secret123", service = null) {
-  await clickBtn("Déconnexion"); await waitText("Créer un compte", 8000); await sleep(600);
+  await clickBtn("Déconnexion"); await waitText("Créer un compte", 8000); await sleep(1200);
   await clickBtn("Créer un compte"); await sleep(800);
   await evalP(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes(${JSON.stringify(roleLabel)}) && x.className.includes('rounded-2xl')); if (b) b.click(); return 1; })()`);
   await sleep(1000); // laisser l'animation AnimatePresence terminer (select service)

@@ -9,6 +9,7 @@ import {
   Calculator, ShieldCheck, TrendingUp, Eye, EyeOff, ArrowLeftRight, Lock, UserPlus, LogIn, AlertCircle, MapPin, Activity,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { ParticleCanvas } from '../components/VisualFX';
 
 /**
  * Écran de connexion / inscription — refonte DA (split-screen immersif) :
@@ -142,6 +143,7 @@ export default function AuthPage() {
     <div className="min-h-screen grid lg:grid-cols-[1.05fr_1fr]">
       {/* ══ Panneau branding (desktop) ══ */}
       <aside className="hidden lg:flex bg-mesh-dark relative overflow-hidden flex-col justify-between p-12 text-slate-200">
+        <ParticleCanvas density={18} speed={0.22} dark />
         <div className="pointer-events-none absolute -top-20 -left-16 w-80 h-80 rounded-full bg-blue-600/20 blur-3xl animate-float-y" />
         <div className="pointer-events-none absolute bottom-10 -right-16 w-96 h-96 rounded-full bg-violet-600/20 blur-3xl animate-float-y" style={{ animationDelay: '1.4s' }} />
 
