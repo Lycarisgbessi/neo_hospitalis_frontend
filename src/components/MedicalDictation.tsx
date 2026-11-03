@@ -162,10 +162,33 @@ export function MedicalDictation({ open, onClose, pageName, schema, enableOrders
   }, [open, stopRecording]);
   useEffect(() => () => stopRecording(), [stopRecording]);
 
+  // ── Diagnostic au démarrage : navigateur + IA ──
+  const [browserSupported, setBrowserSupported] = useState(true);
+  const [aiStatus, setAiStatus] = useState<'checking' | 'ready' | 'error'>('checking');
+
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    setBrowserSupported(Boolean(SR));
+    if (!SR) {
+      setError("Reconnaissance vocale non supportée — utilisez Chrome ou Edge. Vous pouvez taper votre dictée manuellement ci-dessous (même résultat).");
+    }
+    if (isAiConfigured) {
+      generateText("Réponds juste: OK")
+        .then(() => setAiStatus('ready'))
+        .catch(() => {
+          setAiStatus('error');
+          setError(prev => prev || "L'IA ne répond pas (crédits ou connexion). Saisie manuelle disponible ci-dessous.");
+        });
+    } else {
+      setAiStatus('error');
+      setError("IA non configurée (VITE_OPENROUTER_API_KEY). Saisie manuelle disponible ci-dessous.");
+    }
+  }, []);
+
   const startRecording = useCallback(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
-      setError("La reconnaissance vocale n'est pas supportée par ce navigateur. Utilisez Chrome ou Edge — ou saisissez la dictée manuellement ci-dessous.");
+      setError("Non supporté — utilisez Chrome/Edge, ou tapez directement votre dictée ci-dessous.");
       return;
     }
     setError('');
@@ -200,6 +223,13 @@ export function MedicalDictation({ open, onClose, pageName, schema, enableOrders
         setIsRecording(false);
       } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
         console.warn('[Dictée] Erreur reconnaissance:', e.error);
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        setError("Accès au microphone REFUSÉ. Cliquez sur l'icône 🔒 dans la barre d'adresse → Autoriser le microphone, puis réessayez.");
+      } else if (e.error === 'no-speech') {
+        setError("Aucune voix détectée. Vérifiez que votre micro fonctionne et parlez plus fort.");
+      } else if (e.error === 'network') {
+        setError("Erreur réseau pendant la reconnaissance. Vérifiez votre connexion internet.");
+      }
       }
     };
 
@@ -375,7 +405,18 @@ Omette les clés sans contenu.`;
               </div>
             )}
 
-            {/* Contrôle micro */}
+            {/* Indicateurs de diagnostic navigateur + IA */}
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${browserSupported ? 'text-emerald-600' : 'text-red-500'}`}>
+              {browserSupported ? '● Micro OK' : '● Micro non supporté'}
+            </span>
+            <span className="text-stone-300">·</span>
+            <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${aiStatus === 'ready' ? 'text-emerald-600' : aiStatus === 'checking' ? 'text-amber-500' : 'text-red-500'}`}>
+              {aiStatus === 'ready' ? '● IA connectée' : aiStatus === 'checking' ? '● IA connexion...' : '● IA indisponible'}
+            </span>
+          </div>
+
+          {/* Contrôle micro */}
             <div className="flex flex-col items-center py-4 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
               {isRecording ? (
                 <div className="relative">
