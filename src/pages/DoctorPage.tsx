@@ -471,6 +471,12 @@ export default function DoctorPage() {
                 <div className="flex items-center space-x-2">
                   <Badge variant="outline" className="bg-white">Service: <span className="capitalize ml-1">{selectedPatient.targetService}</span></Badge>
                   {selectedPatient.status === 'treated' && <Badge variant="success">Dossier Clôturé</Badge>}
+                  {/* Bouton dictée TOUJOURS visible (peu importe l'onglet actif) */}
+                  {selectedPatient.status !== 'treated' && (
+                    <Button type="button" onClick={() => setShowDictation(true)} size="sm" className="btn-sheen bg-gradient-to-r from-indigo-600 to-violet-600 shadow-glow rounded-xl">
+                      <Mic className="w-4 h-4 mr-1.5" /> Dicter
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
@@ -753,6 +759,23 @@ export default function DoctorPage() {
 
                   <TabsContent value="diagnosis" className="mt-0">
                     <div className="space-y-8">
+                      {/* Dictée depuis l'onglet Diagnostics (contrôle vocal total) */}
+                      <div className="rounded-2xl border-2 border-dashed border-violet-200 bg-violet-50/40 p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                        <div className="flex items-start">
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white flex items-center justify-center mr-3 shrink-0">
+                            <Mic className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-stone-900">Tout dicter — examens, diagnostics, prescriptions, transfert</h3>
+                            <p className="text-sm text-stone-500 mt-0.5">
+                              Dictez d'un seul coup : constantes, examen, diagnostic, ordonnances, orientation…
+                            </p>
+                          </div>
+                        </div>
+                        <Button type="button" onClick={() => setShowDictation(true)} size="lg" className="btn-sheen bg-gradient-to-r from-violet-600 to-indigo-600 shadow-glow shrink-0 rounded-xl">
+                          <Mic className="w-5 h-5 mr-2" /> Dicter maintenant
+                        </Button>
+                      </div>
                        <div>
                         <h3 className="text-lg font-semibold mb-4 flex items-center text-slate-800"><Activity className="w-5 h-5 mr-2 text-orange-500"/> Diagnostic</h3>
                         <div className="space-y-4">
