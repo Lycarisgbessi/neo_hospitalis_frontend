@@ -71,20 +71,42 @@ const ordresOf = (pid) => evalP(`JSON.parse(localStorage.getItem('hospi_orders')
 
 await sleep(1500);
 
+// ── Helpers parcours refondu (wizard + auth) ──
+async function wizardSetup(adminName, adminPwd = "secret123", hospitalName = "Clinique Test") {
+  await waitText("Configurer mon", 10000);
+  await clickBtn("Configurer mon"); await sleep(600);
+  await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder && i.placeholder.includes('Clinique'))`, hospitalName);
+  await clickBtn("Continuer"); await sleep(600);
+  await clickBtn("Continuer"); await sleep(600);
+  await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder && i.placeholder.includes('Dr Awa'))`, adminName);
+  await setVal(`document.querySelector('input[type=password]')`, adminPwd);
+  await clickBtn("Continuer"); await sleep(600);
+  await clickBtn("Lancer Hospitalis"); await sleep(2200);
+}
+async function createAccountByRole(roleLabel, name, pwd = "secret123", service = null) {
+  await clickBtn("Déconnexion"); await waitText("Créer un compte", 8000); await sleep(500);
+  await clickBtn("Créer un compte"); await sleep(600);
+  await evalP(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes(${JSON.stringify(roleLabel)}) && x.className.includes('rounded-2xl')); if (b) b.click(); return 1; })()`);
+  await sleep(500);
+  if (service) {
+    await evalP(`(() => { const s = [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === ${JSON.stringify(service)})); if (s) { Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set.call(s, ${JSON.stringify(service)}); s.dispatchEvent(new Event('change', { bubbles: true })); } return 1; })()`);
+    await sleep(300);
+  }
+  await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder === 'Dr Jane Doe')`, name);
+  await setVal(`document.querySelector('input[type=password]')`, pwd);
+  await clickBtn("Créer mon compte"); await sleep(1500);
+}
+async function loginAs(name, pwd = "secret123") {
+  await clickBtn("Déconnexion"); await waitText("Connexion", 8000); await sleep(500);
+  await clickBtn("Connexion"); await sleep(400);
+  await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder === 'Dr Jane Doe')`, name);
+  await setVal(`document.querySelector('input[type=password]')`, pwd);
+  await clickBtn("Se connecter"); await sleep(1500);
+}
+
 // ── Setup + inscription ──
-await waitText("Mode Clinique", 10000);
-await clickBtn("Mode Clinique"); await sleep(300);
-await clickBtn("Continuer"); await sleep(300);
-await clickBtn("Terminer la Configuration");
-await waitText("Portail de Connexion", 8000);
-await clickBtn("Volet Administratif"); await sleep(500);
-await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder && i.placeholder.includes('Doe'))`, "Dr Alpha Bah");
-await setVal(`document.querySelector('input[type=password]')`, "secret123");
-await setVal(`document.querySelector('select')`, "super_admin", "change");
-await sleep(250);
-await clickBtn("Créer le compte"); await sleep(1200);
-const connected = await evalP(`document.body.innerText.includes('Bonjour, Dr Alpha Bah')`);
-step("setup-inscription", connected);
+await wizardSetup("Dr Alpha Bah");
+step("setup-inscription", await evalP(`location.pathname === "/"`), "wizard + auto-login");
 
 // Admettre un patient test en un appel (formulaire réception)
 async function admettre(nom, age, modeExam = false, exams = []) {

@@ -18,7 +18,7 @@ interface PrescriptionBuilderProps {
 interface Medication { name: string; dosage: string; form: string; frequency: string; duration: string; instructions: string; }
 
 export function PrescriptionBuilder({ type, onClose, onSubmit, patientName, patientAge, patientGender }: PrescriptionBuilderProps) {
-  const { currentUser } = useApp();
+  const { currentUser, hospitalProfile } = useApp();
   const [medications, setMedications] = useState<Medication[]>([{ name: '', dosage: '', form: '', frequency: '', duration: '', instructions: '' }]);
   const [labTests, setLabTests] = useState<string[]>([]);
   const [otherLabTests, setOtherLabTests] = useState('');
@@ -210,13 +210,13 @@ export function PrescriptionBuilder({ type, onClose, onSubmit, patientName, pati
                         <Activity className="w-6 h-6" />
                      </div>
                      <div>
-                        <h1 className="text-2xl font-black uppercase tracking-widest text-slate-900 leading-tight">HÔPITAL CENTRAL</h1>
+                        <h1 className="text-2xl font-black uppercase tracking-widest text-slate-900 leading-tight">{hospitalProfile.name}</h1>
                         <p className="text-[10px] tracking-widest text-slate-500 uppercase font-sans">République de Guinée</p>
                      </div>
                   </div>
-                  <p className="text-sm text-slate-600 mt-2">123 Avenue de la République</p>
+                  <p className="text-sm text-slate-600 mt-2">{hospitalProfile.city} — République de Guinée</p>
                   <p className="text-sm text-slate-600 mb-1">Commune de Kaloum, Conakry</p>
-                  <p className="text-sm text-slate-500 font-sans">Tél: +(224) 622 00 00 00</p>
+                  <p className="text-sm text-slate-500 font-sans">Tél: {hospitalProfile.phone || "—"}</p>
                </div>
                <div className="text-right">
                   <p className="font-bold text-lg text-slate-900">Dr. {currentUser?.name}</p>

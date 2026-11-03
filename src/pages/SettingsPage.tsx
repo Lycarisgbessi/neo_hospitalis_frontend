@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
-import { useApp, ModuleType, ServiceBudgets } from '../context/AppContext';
+import { useApp, ModuleType, ServiceBudgets, HospitalProfile } from '../context/AppContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
-import { Settings, SwitchCamera, Activity, Power, Coins, Trash2 } from 'lucide-react';
+import { Settings, SwitchCamera, Activity, Power, Coins, Trash2, Building2 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Input } from '../components/ui/Input';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/Dialog';
 
 export default function SettingsPage() {
-  const { architectureMode, activeModules, setArchitectureMode, setActiveModules, serviceBudgets, setServiceBudgets, resetAllData } = useApp();
+  const { architectureMode, activeModules, setArchitectureMode, setActiveModules, serviceBudgets, setServiceBudgets, resetAllData, hospitalProfile, setHospitalProfile } = useApp();
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [budgetDraft, setBudgetDraft] = useState<ServiceBudgets>(serviceBudgets);
+  const [profileDraft, setProfileDraft] = useState<HospitalProfile>(hospitalProfile);
 
   const toggleModule = (moduleKey: keyof typeof activeModules) => {
     setActiveModules({
@@ -117,6 +118,41 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-0 shadow-sm ring-1 ring-slate-200">
+        <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+          <CardTitle className="text-lg flex items-center">
+            <Building2 className="w-5 h-5 mr-2 text-blue-600" />
+            Identité de l'établissement
+          </CardTitle>
+          <CardDescription>Affichée sur la sidebar, les reçus de caisse et les ordonnances.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-6">
+          <div className="grid sm:grid-cols-3 gap-4">
+            <div>
+              <label className="text-micro block mb-1.5">Nom</label>
+              <Input value={profileDraft.name} onChange={e => setProfileDraft({ ...profileDraft, name: e.target.value })} className="h-10" />
+            </div>
+            <div>
+              <label className="text-micro block mb-1.5">Ville</label>
+              <Input value={profileDraft.city} onChange={e => setProfileDraft({ ...profileDraft, city: e.target.value })} className="h-10" />
+            </div>
+            <div>
+              <label className="text-micro block mb-1.5">Téléphone</label>
+              <Input value={profileDraft.phone} onChange={e => setProfileDraft({ ...profileDraft, phone: e.target.value })} className="h-10" />
+            </div>
+          </div>
+          <div className="flex justify-end mt-4">
+            <Button
+              onClick={() => setHospitalProfile(profileDraft)}
+              disabled={JSON.stringify(profileDraft) === JSON.stringify(hospitalProfile) || !profileDraft.name.trim()}
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:brightness-110"
+            >
+              Enregistrer l'identité
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="border-0 shadow-sm ring-1 ring-slate-200">
         <CardHeader className="bg-slate-50/50 border-b border-slate-100">

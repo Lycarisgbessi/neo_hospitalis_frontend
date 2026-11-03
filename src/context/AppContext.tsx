@@ -253,6 +253,13 @@ export interface StockItem {
 
 export type ServiceBudgets = Record<string, number>;
 
+/** Identité de l'établissement (configurée au premier démarrage, éditable dans les Paramètres). */
+export interface HospitalProfile {
+  name: string;
+  city: string;
+  phone: string;
+}
+
 /** Libellés d'affichage des types d'entrées du dossier médical longitudinal. */
 export const RECORD_TYPE_LABELS: Record<string, string> = {
   lab_result: 'Résultats Laboratoire',
@@ -280,6 +287,8 @@ interface AppState {
   payments: Payment[];
   serviceBudgets: ServiceBudgets;
   pharmacyStock: StockItem[];
+  hospitalProfile: HospitalProfile;
+  setHospitalProfile: (profile: HospitalProfile) => void;
 
   setSetup: (isSetup: boolean) => void;
   setArchitectureMode: (mode: ArchitectureMode) => void;
@@ -338,6 +347,12 @@ const defaultServiceBudgets: ServiceBudgets = {
   laboratoire: DEFAULT_SERVICE_BUDGET,
   imagerie: DEFAULT_SERVICE_BUDGET,
   bloc: DEFAULT_SERVICE_BUDGET,
+};
+
+const defaultHospitalProfile: HospitalProfile = {
+  name: "HÔPITAL CENTRAL",
+  city: "Conakry",
+  phone: "+224 622 00 00 00",
 };
 
 const defaultPharmacyStock: StockItem[] = [
@@ -428,6 +443,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [payments, setPayments] = useLocalStorage<Payment[]>('hospi_payments', []);
   const [serviceBudgets, setServiceBudgets] = useLocalStorage<ServiceBudgets>('hospi_serviceBudgets', defaultServiceBudgets);
   const [pharmacyStock, setPharmacyStock] = useLocalStorage<StockItem[]>('hospi_pharmacyStock', defaultPharmacyStock);
+  const [hospitalProfile, setHospitalProfile] = useLocalStorage<HospitalProfile>('hospi_hospitalProfile', defaultHospitalProfile);
 
   // ── Migration du schéma localStorage ─────────────────────────────────────────
   // Garantit la compatibilité des données persistées entre versions de l'app :
@@ -452,6 +468,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // Complète les budgets manquants sans écraser les valeurs personnalisées.
       setServiceBudgets(prev => ({ ...defaultServiceBudgets, ...prev }));
+
+      // Complète le profil d'établissement sans écraser les valeurs personnalisées.
+      setHospitalProfile(prev => ({ ...defaultHospitalProfile, ...prev }));
 
       // Fusion du stock : conserve les quantités existantes, ajoute les nouveaux articles.
       setPharmacyStock(prev => {
@@ -511,7 +530,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       SCHEMA_VERSION_KEY,
       'hospi_isSetup', 'hospi_architectureMode', 'hospi_activeModules', 'hospi_currentUser', 'hospi_users',
       'hospi_patients', 'hospi_consultations', 'hospi_orders', 'hospi_purchaseOrders',
-      'hospi_maintenanceQuotes', 'hospi_payments', 'hospi_serviceBudgets', 'hospi_pharmacyStock',
+      'hospi_maintenanceQuotes', 'hospi_payments', 'hospi_serviceBudgets', 'hospi_pharmacyStock', 'hospi_hospitalProfile',
     ];
     keysToRemove.forEach(k => window.localStorage.removeItem(k));
     window.location.reload();
@@ -529,6 +548,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       payments, addPayment,
       serviceBudgets, setServiceBudgets,
       pharmacyStock, updateStockItem, setPharmacyStock,
+      hospitalProfile, setHospitalProfile,
       resetAllData
     }}>
       {children}

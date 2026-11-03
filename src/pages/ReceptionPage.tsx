@@ -7,6 +7,7 @@ import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/Dialog';
 import { useToast } from '../components/Toast';
+import { SuccessCheck } from '../components/SuccessCheck';
 import { UserPlus, CheckCircle2, Users, Search, Activity, UserCog, FlaskConical, Camera, CalendarDays, AlertTriangle } from 'lucide-react';
 
 /** Examens proposés en accès direct (tarifs = catalogue, jamais inventés). */
@@ -261,9 +262,7 @@ export default function ReceptionPage() {
           <CardContent className="p-6">
             {showSuccess ? (
               <div className="py-12 text-center flex flex-col items-center">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                  <CheckCircle2 className="w-8 h-8 text-green-600" />
-                </div>
+                <div className="mb-4 flex justify-center"><SuccessCheck size={72} /></div>
                 <h3 className="text-lg font-bold text-slate-900">Patient enregistré avec succès</h3>
                 <p className="text-sm text-slate-500 mt-2">{successMsg}</p>
                 <Button className="mt-8" variant="outline" onClick={() => setShowSuccess(false)}>Nouveau patient</Button>

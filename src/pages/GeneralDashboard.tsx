@@ -25,7 +25,7 @@ function useCountUp(target: number, duration = 850): number {
 const dayKey = (iso: string | undefined) => iso ? new Date(iso).toISOString().slice(0, 10) : '';
 
 export default function GeneralDashboard() {
-  const { patients, activeModules, architectureMode, currentUser, orders, consultations, payments, users } = useApp();
+  const { patients, activeModules, architectureMode, currentUser, orders, consultations, payments, users, hospitalProfile } = useApp();
 
   const today = new Date().toISOString().slice(0, 10);
   const yesterdayDate = new Date();
@@ -113,6 +113,7 @@ export default function GeneralDashboard() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-900 text-white p-8 rounded-2xl shadow-lg relative overflow-hidden">
         <div className="relative z-10">
           <h1 className="text-3xl font-bold tracking-tight">Bonjour, {currentUser?.name} 👋</h1>
+          <p className="text-indigo-300/90 mt-1 text-sm font-semibold uppercase tracking-[0.14em]">{hospitalProfile.name}</p>
           <p className="text-indigo-200 mt-2 text-lg">
             Mode {architectureMode === 'polyclinic' ? 'Polyclinique' : 'Clinique'}, voici le résumé de l'activité du jour.
             {hospitalizedPatients > 0 && <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full bg-red-500/20 text-red-200 text-sm font-semibold">· {hospitalizedPatients} hospitalisé{hospitalizedPatients > 1 ? 's' : ''}</span>}

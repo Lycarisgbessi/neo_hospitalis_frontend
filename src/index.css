@@ -117,3 +117,167 @@ select:focus-visible {
     display: none !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DIRECTION ARTISTIQUE « PREMIUM » — raffinée, épurée, soft (refonte DA)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Ombres douces à deux couches (profondeur feutrée, jamais dure) */
+.shadow-soft {
+  box-shadow:
+    0 1px 2px rgb(15 23 42 / 0.05),
+    0 8px 24px -12px rgb(15 23 42 / 0.12);
+}
+
+.shadow-lift {
+  box-shadow:
+    0 2px 4px rgb(15 23 42 / 0.05),
+    0 16px 40px -16px rgb(15 23 42 / 0.22);
+}
+
+.shadow-glow-blue {
+  box-shadow: 0 8px 30px -8px rgb(37 99 235 / 0.45);
+}
+
+/* Verre dépoli (headers flottants, panneaux) */
+.glass {
+  background: rgb(255 255 255 / 0.72);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid rgb(255 255 255 / 0.65);
+}
+
+/* Dégradé-mesh d'ambiance (wizard, panneau branding, héros) */
+.bg-mesh {
+  background:
+    radial-gradient(52rem 32rem at 12% -8%, rgb(59 130 246 / 0.16), transparent 60%),
+    radial-gradient(44rem 30rem at 96% 8%, rgb(139 92 246 / 0.14), transparent 58%),
+    radial-gradient(40rem 26rem at 55% 115%, rgb(14 165 233 / 0.12), transparent 60%),
+    #f8fafc;
+}
+
+.bg-mesh-dark {
+  background:
+    radial-gradient(46rem 30rem at 18% -12%, rgb(37 99 235 / 0.28), transparent 55%),
+    radial-gradient(38rem 28rem at 100% 12%, rgb(124 58 237 / 0.22), transparent 55%),
+    radial-gradient(34rem 22rem at 50% 118%, rgb(6 182 212 / 0.16), transparent 58%),
+    #020617;
+}
+
+/* Micro-label éditorial */
+.text-micro {
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+/* Balayage lumineux sur les boutons primaires (hover) */
+.btn-sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.btn-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-130%) skewX(-18deg);
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.22), transparent);
+  transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.btn-sheen:hover::after {
+  transform: translateX(130%) skewX(-18deg);
+}
+
+/* Ripple au clic (span injecté par Button.tsx) */
+.ripple-ink {
+  position: absolute;
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 0.45);
+  transform: scale(0);
+  animation: ripple 0.65s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes ripple {
+  to { transform: scale(3.2); opacity: 0; }
+}
+
+/* Secousse d'erreur de validation */
+.animate-shake {
+  animation: shake 0.45s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+@keyframes shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-3px); }
+  40%, 60% { transform: translateX(3px); }
+}
+
+/* Dessin progressif (SuccessCheck) */
+.draw-circle {
+  stroke-dasharray: 166;
+  stroke-dashoffset: 166;
+  animation: draw 0.55s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+.draw-check {
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: draw 0.4s cubic-bezier(0.65, 0, 0.45, 1) 0.45s forwards;
+}
+
+@keyframes draw {
+  to { stroke-dashoffset: 0; }
+}
+
+/* Flottement doux (icônes héros, orbes) */
+.animate-float-y {
+  animation: floatY 5s ease-in-out infinite;
+}
+
+@keyframes floatY {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+
+/* Anneaux pulsés (accueil wizard) */
+.pulse-ring::before,
+.pulse-ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid rgb(37 99 235 / 0.35);
+  animation: pulseRing 2.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  pointer-events: none;
+}
+
+.pulse-ring::after { animation-delay: 1.3s; }
+
+@keyframes pulseRing {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+
+/* Liseré lumineux des cartes actives (wizard/rôles) */
+.card-active-glow {
+  box-shadow:
+    0 0 0 1px rgb(37 99 235 / 0.5),
+    0 10px 30px -12px rgb(37 99 235 / 0.35);
+}
+
+/* Respect des préférences de mouvement */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -9,7 +9,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '../components/u
 import { CreditCard, CheckCircle, Clock, Banknote, Receipt, AlertCircle, RefreshCw, User, FileText } from 'lucide-react';
 
 export default function CashierPage() {
-  const { patients, updatePatient, orders, updateOrder, payments, addPayment, currentUser } = useApp();
+  const { patients, updatePatient, orders, updateOrder, payments, addPayment, currentUser, hospitalProfile } = useApp();
   const { registerPage, unregisterPage } = useAI();
 
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
@@ -359,8 +359,8 @@ export default function CashierPage() {
                 <DialogHeader className="bg-slate-100 border-b border-slate-200 p-6">
                   <DialogTitle className="flex justify-between items-start">
                      <div>
-                        <span className="text-2xl font-black text-slate-800 tracking-tight">HÔPITAL CENTRAL</span>
-                        <p className="text-sm font-medium text-slate-500 mt-1">Reçu de Paiement • {pay.id}</p>
+                        <span className="text-2xl font-black text-slate-800 tracking-tight">{hospitalProfile.name}</span>
+                        <p className="text-sm font-medium text-slate-500 mt-1">{hospitalProfile.city} • Reçu de Paiement • {pay.id}</p>
                      </div>
                      <Receipt className="w-10 h-10 text-slate-300 no-print" />
                   </DialogTitle>

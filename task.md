@@ -149,3 +149,8 @@ Nouvelle loupe : toutes les validations précédentes tournaient en mode CLINIQU
 - **`neo-hospitalis-frontend.vercel.app` sert désormais la VERSION AUDITÉE** (déploiement `dpl_6YCCoo…`, 21 fichiers, encoding base64 — piège v13 documenté : `encoding: "base64"` obligatoire, `$schema` rejeté dans vercel.json de déploiement).
 - Vérifié en ligne : `/` 200 « Hospitalis — Gestion Hospitalière », fallback SPA `/caisse` et `/gyneco` → 200, favicon 200, bundle IA présent.
 - Situation finale : 2 URL en ligne servent la même version auditée — `neo-hospitalis-frontend.vercel.app` (projet historique, compte travaileinsof) et `hospitalis.vercel.app` (team einsof-test).
+
+## Cycle 14 — VERSIONNING (terminé) — incohérence #5 close
+- Repo git initialisé localement (branche main, 58 fichiers, .env/node_modules/dist/.vercel/zips exclus).
+- Repo GitHub créé et poussé : **https://github.com/Lycarisgbessi/neo_hospitalis_frontend** (public) — commit initial « Hospitalis — version auditée complète (cycles 1-13) ».
+- Jumeau du backend `Lycarisgbessi/neo_hospitalis` (NestJS). Le repo vide travaileinsof-web/neo_hospitalis est abandonné (à supprimer si souhaité).

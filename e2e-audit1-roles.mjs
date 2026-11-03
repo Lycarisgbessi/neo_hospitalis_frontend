@@ -89,17 +89,49 @@ await S("Runtime.enable"); await S("Page.enable");
 await sleep(1200);
 
 // ═══ P1 : Setup en mode POLYCLINIQUE ═══
-await waitText("Mode Clinique", 10000);
-await clickBtn("Mode Polyclinique"); await sleep(300);
-await clickBtn("Continuer"); await sleep(300);
-await clickBtn("Terminer la Configuration");
-const surAuth = await waitText("Portail de Connexion", 8000);
-step("P1-setup-polyclinique", surAuth, "mode polyclinique sélectionné");
+// ── Helpers parcours refondu (wizard + auth) ──
+async function wizardSetup(adminName, adminPwd = "secret123", hospitalName = "Clinique Test", isPoly = false) {
+  await waitText("Configurer mon", 10000);
+  await clickBtn("Configurer mon"); await sleep(600);
+  if (isPoly) {
+    await clickBtn("Polyclinique"); await sleep(400);
+  }
+  await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder && i.placeholder.includes('Clinique'))`, hospitalName);
+  await clickBtn("Continuer"); await sleep(600);
+  await clickBtn("Continuer"); await sleep(600);
+  await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder && i.placeholder.includes('Dr Awa'))`, adminName);
+  await setVal(`document.querySelector('input[type=password]')`, adminPwd);
+  await clickBtn("Continuer"); await sleep(600);
+  await clickBtn("Lancer Hospitalis"); await sleep(2200);
+}
+async function createAccountByRole(roleLabel, name, pwd = "secret123", service = null) {
+  await clickBtn("Déconnexion"); await waitText("Créer un compte", 8000); await sleep(600);
+  await clickBtn("Créer un compte"); await sleep(800);
+  await evalP(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes(${JSON.stringify(roleLabel)}) && x.className.includes('rounded-2xl')); if (b) b.click(); return 1; })()`);
+  await sleep(1000); // laisser l'animation AnimatePresence terminer (select service)
+  if (service) {
+    await evalP(`(() => { const s = [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === ${JSON.stringify(service)})); if (s) { Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set.call(s, ${JSON.stringify(service)}); s.dispatchEvent(new Event('change', { bubbles: true })); } return 1; })()`);
+    await sleep(500);
+  }
+  await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder === 'Dr Jane Doe')`, name);
+  await setVal(`document.querySelector('input[type=password]')`, pwd);
+  await clickBtn("Créer mon compte"); await sleep(1500);
+}
+async function loginAs(name, pwd = "secret123") {
+  await clickBtn("Déconnexion"); await waitText("Connexion", 8000); await sleep(500);
+  await clickBtn("Connexion"); await sleep(400);
+  await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder === 'Dr Jane Doe')`, name);
+  await setVal(`document.querySelector('input[type=password]')`, pwd);
+  await clickBtn("Se connecter"); await sleep(1500);
+}
+
+await wizardSetup("Dr Admin", "secret123", "Polyclinique Test", true);
+step("P1-setup-polyclinique", await evalP(`location.pathname === "/"`), "wizard + auto-login");
 
 // ═══ P2 : comptes par rôle ═══
-await createAccount("Volet Administratif", "receptionniste", null, "Aïcha Réception");
+await createAccountByRole("Réceptionniste", "Aïcha Réception");
 const users1 = await evalP(`JSON.parse(localStorage.getItem('hospi_users')).length`);
-step("P2a-compte-receptionniste", users1 === 1 && (await evalP(`document.body.innerText.includes('Aïcha')`)), `users=${users1}`);
+step("P2a-compte-receptionniste", users1 >= 2 && (await evalP(`document.body.innerText.includes('Aïcha')`)), `users=${users1} (admin + Aïcha attendus)`);
 
 // Nav réceptionniste : Réception + Dashboard UNIQUEMENT
 const navRecep = await evalP(`[...document.querySelectorAll('aside nav a')].map(a => a.getAttribute('href'))`);
@@ -127,7 +159,7 @@ step("P4-admission-gyneco", kad?.status === "waiting_payment" && kad?.gynecoTria
 await logout();
 
 // ═══ P5 : caissier encaisse la consultation gynéco ═══
-await createAccount("Volet Administratif", "caissier", null, "Moussa Caisse");
+await createAccountByRole("Caissier", "Moussa Caisse");
 const navCaissier = await evalP(`[...document.querySelectorAll('aside nav a')].map(a => a.getAttribute('href'))`);
 step("P5a-nav-caissier", JSON.stringify(navCaissier) === JSON.stringify(["/caisse", "/"]), navCaissier.join(","));
 await nav("/caisse"); await waitText("Facturations en Attente");
@@ -141,7 +173,7 @@ step("P5b-encaissement-40k", kad2?.status === "waiting_consultation" && kad2?.co
 await logout();
 
 // ═══ P6 : Dr Kaba (médecine, service GYNÉCOLOGIE) ═══
-await createAccount("Volet Médical", "medecin", "gynecologie", "Dr Kaba");
+await createAccountByRole("Médecin", "Dr Kaba", "secret123", "gynecologie");
 const navKaba = await evalP(`[...document.querySelectorAll('aside nav a')].map(a => a.getAttribute('href'))`);
 step("P6a-nav-medecin-gyneco", navKaba.includes("/gyneco") && navKaba.includes("/doctor"), navKaba.join(","));
 // File gynéco : Kadiatou visible, urgence en tête
@@ -169,7 +201,7 @@ step("P6d-consultation-clôturée", kad3?.status === "treated" && ordresKad.some
 await logout();
 
 // ═══ P7 : Dr Diallo (service CARDIOLOGIE) — cloisonnement W1 ═══
-await createAccount("Volet Médical", "medecin", "cardiologie", "Dr Diallo");
+await createAccountByRole("Médecin", "Dr Diallo", "secret123", "cardiologie");
 await nav("/gyneco"); await waitText("File Gynécologie"); await sleep(700);
 const blocage = await evalP(`(() => { const t = document.body.innerText; return { bandeau: t.includes('réservée au service Gynécologie'), carte: t.includes('Kadiatou') }; })()`);
 step("P7-W1-cloisonnement-gyneco", blocage.bandeau && !blocage.carte, `bandeau=${blocage.bandeau}, Kadiatou visible=${blocage.carte}`);
@@ -180,7 +212,7 @@ await logout();
 
 // ═══ P8 : technicien labo exécute (après paiement par le caissier) ═══
 // (le patient est treated mais son bon labo est pending → caisse)
-await createAccount("Volet Administratif", "caissier", null, "Moussa Caisse"); // re-connexion du même compte (mode connexion)
+await loginAs("Moussa Caisse"); // re-connexion du compte existant
 await nav("/caisse"); await waitText("Facturations en Attente");
 await evalP(`(() => { const li = [...document.querySelectorAll('li')].find(l => l.textContent.includes('Kadiatou')); if (li) li.click(); return 1; })()`);
 await sleep(700);
@@ -188,7 +220,7 @@ await evalP(`(() => { [...document.querySelectorAll('label')].filter(l => l.quer
 await sleep(300);
 await clickBtn("Valider le règlement"); await sleep(1000);
 await logout();
-await createAccount("Volet Médical", "technicien_labo", null, "Séo Labo");
+await createAccountByRole("Technicien Laboratoire", "Séo Labo");
 await nav("/labo"); await waitText("Analyses en Attente");
 await clickBtn("Saisir les résultats"); await sleep(700);
 await setVal(`[...document.querySelectorAll('input')].find(i => i.placeholder.includes('Hémoglobine'))`, "Créatininémie");
@@ -200,7 +232,7 @@ step("P8-labo-execute", (kadFin?.medicalRecords?.length || 0) === 1, `records=${
 await logout();
 
 // ═══ P9 : comptable — nav W2 (supervision caisse) ═══
-await createAccount("Volet Administratif", "comptable", null, "Fatou Compta");
+await createAccountByRole("Comptable", "Fatou Compta");
 const navCompta = await evalP(`[...document.querySelectorAll('aside nav a')].map(a => a.getAttribute('href'))`);
 step("P9-W2-nav-comptable", navCompta.includes("/caisse") && navCompta.includes("/finance"), navCompta.join(","));
 await nav("/caisse"); await sleep(800);
